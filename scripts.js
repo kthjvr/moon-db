@@ -470,7 +470,7 @@
     if (!original) return;
     const duplicate = {
       id: nextId++,
-      title: original.title + ' (copy)',
+      title: original.title,
       role: original.role,
       status: 'Backlog',
       priority: original.priority,
