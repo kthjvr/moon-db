@@ -757,6 +757,30 @@ function initCalendar() {
     initialView: 'dayGridMonth',
     headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,dayGridWeek' },
     eventOrder: 'order,start,title',  // group by role order, then by date, then alphabetically
+    editable: true,            // enables drag-and-drop on all events
+    droptable: true,          // allows dropping onto day cells
+    eventDurationEditable: false, // don't allow resizing (we only want date change, not duration)
+
+    // ── Fired when user drops an event onto a new date ──
+    eventDrop: function(info) {
+      const taskId = info.event.extendedProps.taskId;
+      const task   = tasks.find(t => t.id === taskId);
+      if (!task) { info.revert(); return; }
+
+      // FullCalendar gives us the new date as a Date object — convert to ISO string
+      // Use local date parts instead of toISOString() which converts to UTC
+      // and shifts the date back by a day for UTC+ timezones (e.g. Philippines UTC+8)
+      const d = info.event.start;
+      const newDue = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      task.due = newDue;
+      saveData();
+      // Refresh snapshot + urgent on overview without destroying the calendar
+      if (activeTab === 'overview') {
+        renderMetrics();
+        renderToday();
+        renderUrgent();
+      }
+    },
     height: 'auto',
     contentHeight: 'auto',
     events: getCalendarEvents(),
