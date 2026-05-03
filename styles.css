@@ -269,8 +269,8 @@
     }
 
     .fc-event {
-      background-color: #E6D6FF !important;
-      border-color: #A888E0 !important;
+      background-color: #E6D6FF;
+      border-color: #A888E0;
       cursor: pointer;
     }
 
@@ -286,22 +286,6 @@
 
     .fc-event:hover {
       box-shadow: 0 4px 12px rgba(128, 96, 192, 0.2);
-    }
-
-    /* Role-based event colors */
-    .fc-event.event-qa {
-      background-color: #EDE0FF !important;
-      border-color: #CDB8F5 !important;
-    }
-
-    .fc-event.event-marketing {
-      background-color: #FFD6E7 !important;
-      border-color: #F8C8DC !important;
-    }
-
-    .fc-event.event-finance {
-      background-color: #D6EEE8 !important;
-      border-color: #B8E0D8 !important;
     }
 
     .fc-event.event-high {
