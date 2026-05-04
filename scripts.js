@@ -725,7 +725,7 @@ function getPriorityEventClass(priority) {
 
 /** @returns {Object[]} */
 function getCalendarEvents() {
-  return tasks.filter(t => t.due && !t.done).map(t => {
+  return tasks.filter(t => t.due).map(t => {
     // Use role index so events stack in the same order as the nav tabs
     const roleOrder = roles.indexOf(t.role);
     return {
@@ -740,6 +740,7 @@ function getCalendarEvents() {
         role:        t.role,
         priority:    t.priority,
         status:      t.status,
+        done:        t.done,
         eventBg:     getRoleColor(t.role).eventBg,
         eventBorder: getRoleColor(t.role).eventBorder,
         eventText:   getRoleColor(t.role).text,
@@ -788,14 +789,29 @@ function initCalendar() {
     // ── KEY FIX: force role colors via inline styles after each event mounts ──
     eventDidMount: function(info) {
       const props = info.event.extendedProps;
-      // The main event element
-      info.el.style.setProperty('background-color', props.eventBg,     'important');
-      info.el.style.setProperty('border-color',     props.eventBorder, 'important');
-      info.el.style.setProperty('color',            props.eventText,   'important');
-      // Also target the inner fc-event-main div that FullCalendar renders
+
+      if (props.done) {
+        // Done tasks: muted background, strikethrough title, reduced opacity
+        info.el.style.setProperty('background-color', '#F5F5F5', 'important');
+        info.el.style.setProperty('border-color',     '#DDDDDD', 'important');
+        info.el.style.setProperty('color',            '#AAAAAA', 'important');
+        info.el.style.setProperty('opacity',          '0.65',    'important');
+        const title = info.el.querySelector('.fc-event-title');
+        if (title) {
+          title.style.setProperty('text-decoration', 'line-through', 'important');
+          title.style.setProperty('color',           '#AAAAAA',      'important');
+        }
+      } else {
+        // Active tasks: full role color
+        info.el.style.setProperty('background-color', props.eventBg,     'important');
+        info.el.style.setProperty('border-color',     props.eventBorder, 'important');
+        info.el.style.setProperty('color',            props.eventText,   'important');
+      }
+
+      // Apply text color to the inner fc-event-main div too
       const inner = info.el.querySelector('.fc-event-main');
       if (inner) {
-        inner.style.setProperty('color', props.eventText, 'important');
+        inner.style.setProperty('color', props.done ? '#AAAAAA' : props.eventText, 'important');
       }
     },
 
