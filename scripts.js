@@ -761,3 +761,92 @@ function deleteCurrentTask() {
     }
   });
 })();
+
+// ─── Import/Export Data ────────────────────────────────────────────────────
+
+function exportData() {
+  const data = {
+    tasks, 
+    nextId, 
+    roles, 
+    roleColorMap,
+    note: document.getElementById('notepad')?.value || '',
+    tomatoCount, 
+    tomatoDate,
+    exportedAt: new Date().toISOString(),
+  };
+  
+  const dataStr = JSON.stringify(data, null, 2);
+  const blob = new Blob([dataStr], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `moon-db-backup-${new Date().toISOString().split('T')[0]}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  
+  alert('✅ Data exported successfully!');
+}
+
+function triggerImport() {
+  document.getElementById('import-file').click();
+}
+
+function importData(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      const imported = JSON.parse(e.target?.result);
+      
+      if (!confirm(`Import ${imported.tasks?.length || 0} tasks? This will replace your current data.`)) {
+        event.target.value = '';
+        return;
+      }
+      
+      // Replace data
+      tasks = imported.tasks || [];
+      nextId = imported.nextId || 200;
+      roles = imported.roles || [...DEFAULT_ROLES];
+      roleColorMap = imported.roleColorMap || {};
+      tomatoCount = imported.tomatoCount || 0;
+      tomatoDate = imported.tomatoDate || todayISO();
+      
+      const noteEl = document.getElementById('notepad');
+      if (noteEl) noteEl.value = imported.note || '';
+      
+      // Reinit roles and filters
+      dateFilters = { all: 'all' };
+      roles.forEach(r => { 
+        dateFilters[r.toLowerCase().replace(/\s+/g, '_')] = 'all'; 
+      });
+      
+      // Save to Firestore
+      await saveToFirestore();
+      
+      // Re-render UI
+      renderNavTabs();
+      renderRoleTabs();
+      updateRoleSelect();
+      render();
+      updateTomatoDisplay();
+      if (calendar) updateCalendarEvents();
+      
+      alert('✅ Data imported successfully! Refreshing...');
+      closeSettingsModal();
+      setTimeout(() => location.reload(), 500);
+      
+    } catch (err) {
+      alert('❌ Import failed: Invalid JSON file or format error');
+      console.error('Import error:', err);
+    }
+  };
+  reader.readAsText(file);
+  
+  // Reset file input
+  event.target.value = '';
+}

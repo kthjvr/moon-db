@@ -8,7 +8,7 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css" />
-
+  <link rel="icon" href="https://ik.imagekit.io/e3wiv79bq/Assets-DP/Moon%20DB.ico" type="image/x-icon">
   <!-- Firebase SDKs (compat version — no bundler needed) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -259,6 +259,27 @@
           <p style="font-size:0.8rem;color:#999;margin:0.5rem 0;">Edit your role names and colors</p>
           <div id="roles-editor" style="display:flex;flex-direction:column;gap:0.75rem;margin-top:1rem;"></div>
         </div>
+      </div>
+      <!-- Data Management Section -->
+      <div class="modal-section" style="margin-top:2rem;padding-top:2rem;border-top:2px solid #FFF0F5;">
+        <span class="modal-label">Data Management</span>
+        <p style="font-size:0.8rem;color:#999;margin:0.5rem 0;">Backup or restore your tasks and settings</p>
+        <div style="display:flex;gap:0.75rem;margin-top:1rem;">
+          <button onclick="exportData()" 
+            style="flex:1;padding:0.75rem;background:#E6D6FF;border:2px solid #A888E0;border-radius:0.75rem;color:#6040A0;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;font-size:0.875rem;transition:all 0.2s;"
+            onmouseover="this.style.background='#D6C6F0'" 
+            onmouseout="this.style.background='#E6D6FF'">
+            📥 Export
+          </button>
+          <button onclick="triggerImport()" 
+            style="flex:1;padding:0.75rem;background:#D6EEE8;border:2px solid #88D8B8;border-radius:0.75rem;color:#207060;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;font-size:0.875rem;transition:all 0.2s;"
+            onmouseover="this.style.background='#C0E0D8'" 
+            onmouseout="this.style.background='#D6EEE8'">
+            📤 Import
+          </button>
+        </div>
+        <!-- Hidden file input for import -->
+        <input type="file" id="import-file" accept=".json" style="display:none;" onchange="importData(event)" />
       </div>
       <div class="modal-actions">
         <button class="modal-btn modal-btn-primary" onclick="closeSettingsModal()">Done</button>
