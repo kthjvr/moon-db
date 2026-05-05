@@ -8,6 +8,12 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css" />
+
+  <!-- Firebase SDKs (compat version — no bundler needed) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
   <script>
     tailwind.config = {
       theme: {
@@ -17,46 +23,55 @@
             mono: ['DM Mono', 'monospace'],
           },
           colors: {
-            pink: {
-              50:  '#FFF0F5',
-              100: '#FFD6E7',
-              200: '#F8C8DC',
-              300: '#F0A0C0',
-              400: '#E07090',
-              500: '#C05070',
-              600: '#A03858',
-              700: '#802840',
-              DEFAULT: '#F8C8DC',
-            },
-            lavender: {
-              50:  '#F5F0FF',
-              100: '#EDE0FF',
-              200: '#E6D6FF',
-              300: '#CDB8F5',
-              400: '#A888E0',
-              500: '#8060C0',
-              600: '#6040A0',
-              700: '#402880',
-              DEFAULT: '#E6D6FF',
-            },
-            cream: '#FFF7FA',
-            sage: {
-              100: '#D6EEE8',
-              500: '#207060',
-              DEFAULT: '#D6EEE8',
-            },
+            pink:     { 50:'#FFF0F5', 100:'#FFD6E7', 200:'#F8C8DC', 300:'#F0A0C0', 400:'#E07090', 500:'#C05070', 600:'#A03858', 700:'#802840', DEFAULT:'#F8C8DC' },
+            lavender: { 50:'#F5F0FF', 100:'#EDE0FF', 200:'#E6D6FF', 300:'#CDB8F5', 400:'#A888E0', 500:'#8060C0', 600:'#6040A0', 700:'#402880', DEFAULT:'#E6D6FF' },
+            cream:    '#FFF7FA',
+            sage:     { 100:'#D6EEE8', 500:'#207060', DEFAULT:'#D6EEE8' },
           },
         },
       },
     }
   </script>
   <link rel="stylesheet" href="styles.css">
-
 </head>
 <body class="min-h-screen">
 
-<!-- APP ROOT -->
-<div id="app" class="max-w-7xl mx-auto px-4 pb-16">
+<!-- ===== LOGIN SCREEN ===== -->
+<div id="login-screen" class="min-h-screen flex items-center justify-center" style="background:#FFF7FA;">
+  <div style="text-align:center; padding:2.5rem; background:white; border-radius:2rem; border:1px solid #FFD6E7; box-shadow:0 8px 40px rgba(200,80,120,0.10); max-width:380px; width:90%;">
+    <div style="font-size:3rem; margin-bottom:0.75rem;">🌙</div>
+    <h1 style="font-size:1.5rem; font-weight:600; color:#802840; margin-bottom:0.5rem; font-family:'DM Sans',sans-serif;">Moon DB</h1>
+    <p style="font-size:0.875rem; color:#C08090; margin-bottom:2rem; font-family:'DM Sans',sans-serif;">Your personal productivity dashboard</p>
+    <button onclick="signInWithGoogle()"
+      style="display:flex; align-items:center; justify-content:center; gap:0.75rem; width:100%; padding:0.875rem 1.5rem; background:white; border:1.5px solid #FFD6E7; border-radius:1rem; cursor:pointer; font-size:0.9rem; font-weight:500; color:#444; font-family:'DM Sans',sans-serif; transition:all 0.2s; box-shadow:0 2px 8px rgba(200,80,120,0.08);"
+      onmouseover="this.style.background='#FFF0F5'; this.style.borderColor='#F0A0C0';"
+      onmouseout="this.style.background='white'; this.style.borderColor='#FFD6E7';">
+      <!-- Google icon -->
+      <svg width="20" height="20" viewBox="0 0 48 48">
+        <path fill="#FFC107" d="M43.6 20H24v8h11.3C33.6 33.2 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3 0 5.7 1.1 7.8 2.9l5.7-5.7C34.1 6.5 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20c11 0 19.4-7.7 19.4-19.4 0-1.3-.1-2.6-.4-3.8-.1-.6-.4-.8-1-.8z"/>
+        <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.5 16 19 13 24 13c3 0 5.7 1.1 7.8 2.9l5.7-5.7C34.1 6.5 29.3 4 24 4 16.3 4 9.6 8.3 6.3 14.7z"/>
+        <path fill="#4CAF50" d="M24 44c5.2 0 9.9-1.9 13.5-5l-6.2-5.2C29.4 35.3 26.8 36 24 36c-5.2 0-9.6-3.5-11.2-8.3l-6.5 5C9.8 39.9 16.4 44 24 44z"/>
+        <path fill="#1976D2" d="M43.6 20H24v8h11.3c-.9 2.5-2.5 4.6-4.7 6l6.2 5.2C40.5 35.7 44 30.3 44 24c0-1.3-.1-2.6-.4-3.8z"/>
+      </svg>
+      Continue with Google
+    </button>
+    <p style="font-size:0.75rem; color:#DDB0C0; margin-top:1.5rem; font-family:'DM Sans',sans-serif;">Your data syncs across all your devices</p>
+  </div>
+</div>
+
+<!-- ===== LOADING OVERLAY ===== -->
+<div id="loading-overlay" class="hidden" style="position:fixed;inset:0;background:rgba(255,247,250,0.85);z-index:200;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:1rem;">
+  <div style="font-size:2rem; animation: spin 1.5s linear infinite;">🌙</div>
+  <p style="font-size:0.875rem; color:#C08090; font-family:'DM Sans',sans-serif;">Loading your workspace...</p>
+</div>
+<style>
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  #loading-overlay { display: flex; }
+  #loading-overlay.hidden { display: none !important; }
+</style>
+
+<!-- ===== APP ===== -->
+<div id="app" class="max-w-7xl mx-auto px-4 pb-16 hidden">
 
   <!-- TOPBAR -->
   <header class="sticky top-0 z-50 bg-cream/90 backdrop-blur-sm border-b border-pink-100 flex items-center justify-between py-3 px-1">
@@ -67,19 +82,27 @@
     <div class="flex items-center gap-3">
       <button onclick="openSettingsModal()" class="text-sm text-pink-400 hover:text-pink-600 transition p-2" title="Settings">⚙️</button>
       <span id="today-label" class="text-xs text-pink-400 font-mono"></span>
+      <!-- User info -->
+      <div class="flex items-center gap-2 pl-3 border-l border-pink-100">
+        <div id="user-avatar"></div>
+        <span id="user-name" class="text-xs text-pink-500 font-medium max-w-[120px] truncate"></span>
+        <button onclick="signOut()"
+          style="font-size:0.7rem;padding:0.25rem 0.6rem;background:#FFE0E8;border:none;border-radius:0.5rem;color:#C05070;cursor:pointer;font-weight:500;font-family:'DM Sans',sans-serif;"
+          onmouseover="this.style.background='#FFD0E0'" onmouseout="this.style.background='#FFE0E8'">
+          Sign out
+        </button>
+      </div>
     </div>
   </header>
 
   <!-- NAV TABS -->
   <nav class="sticky top-[53px] z-40 bg-cream/90 backdrop-blur-sm border-b border-pink-100 flex gap-0 px-0 mb-6" id="nav-tabs">
     <button class="tab-btn active text-sm font-medium px-4 py-3 text-pink-600" data-tab="overview" onclick="switchTab('overview')">Overview</button>
-    <!-- Role tabs will be generated here -->
     <button class="tab-btn text-sm font-medium px-4 py-3 text-gray-400" data-tab="all" onclick="switchTab('all')">All tasks</button>
   </nav>
 
   <!-- ===== OVERVIEW TAB ===== -->
   <div id="tab-overview" class="tab-content fade-in">
-
     <!-- Quick Add -->
     <div class="bg-white border border-pink-100 rounded-2xl p-4 mb-4 shadow-sm">
       <p class="text-xs font-semibold text-pink-400 uppercase tracking-widest mb-3">Quick add</p>
@@ -89,7 +112,6 @@
           onkeydown="if(event.key==='Enter') quickAdd()" />
         <button onclick="quickAdd()" class="px-4 py-2 text-sm font-medium bg-pink-200 hover:bg-pink-300 text-pink-700 rounded-xl transition">Add</button>
       </div>
-      <!-- Quick form (hidden by default) -->
       <div id="quick-form" class="hidden mt-3 pt-3 border-t border-pink-50">
         <div class="flex flex-wrap gap-2 mb-3">
           <select id="qf-role" class="text-sm px-3 py-1.5 rounded-xl border border-pink-100 bg-white text-gray-700 outline-none focus:border-lavender-400 cursor-pointer"></select>
@@ -108,23 +130,14 @@
       </div>
     </div>
 
-    <!-- Metrics row -->
+    <!-- Metrics -->
     <div class="grid grid-cols-3 gap-3 mb-4">
-      <div class="bg-pink-50 rounded-2xl p-4">
-        <p class="text-xs text-pink-400 mb-1">Total tasks</p>
-        <p id="m-total" class="text-2xl font-semibold text-pink-600">0</p>
-      </div>
-      <div class="bg-lavender-50 rounded-2xl p-4">
-        <p class="text-xs text-lavender-500 mb-1">In progress</p>
-        <p id="m-inprogress" class="text-2xl font-semibold text-lavender-600">0</p>
-      </div>
-      <div class="bg-red-50 rounded-2xl p-4">
-        <p class="text-xs text-red-400 mb-1">Blocked</p>
-        <p id="m-blocked" class="text-2xl font-semibold text-red-400">0</p>
-      </div>
+      <div class="bg-pink-50 rounded-2xl p-4"><p class="text-xs text-pink-400 mb-1">Total tasks</p><p id="m-total" class="text-2xl font-semibold text-pink-600">0</p></div>
+      <div class="bg-lavender-50 rounded-2xl p-4"><p class="text-xs text-lavender-500 mb-1">In progress</p><p id="m-inprogress" class="text-2xl font-semibold text-lavender-600">0</p></div>
+      <div class="bg-red-50 rounded-2xl p-4"><p class="text-xs text-red-400 mb-1">Blocked</p><p id="m-blocked" class="text-2xl font-semibold text-red-400">0</p></div>
     </div>
 
-    <!-- Full Calendar -->
+    <!-- Calendar -->
     <div class="calendar-wrapper mb-4">
       <p class="text-xs font-semibold text-pink-400 uppercase tracking-widest mb-3">Task calendar</p>
       <div id="calendar"></div>
@@ -132,19 +145,15 @@
 
     <!-- Today + Urgent + Role Snapshot -->
     <div class="grid grid-cols-5 gap-4 mb-4">
-      <!-- Today's priorities -->
       <div class="col-span-3 bg-white border border-pink-100 rounded-2xl p-4 shadow-sm">
         <p class="text-xs font-semibold text-pink-400 uppercase tracking-widest mb-3">Today's priorities</p>
         <div id="today-list"></div>
       </div>
-      <!-- Right column -->
       <div class="col-span-2 flex flex-col gap-4">
-        <!-- Urgent -->
         <div class="bg-white border border-pink-100 rounded-2xl p-4 shadow-sm">
           <p class="text-xs font-semibold text-pink-400 uppercase tracking-widest mb-3">Urgent</p>
           <div id="urgent-list"></div>
         </div>
-        <!-- Role Snapshot -->
         <div class="bg-white border border-pink-100 rounded-2xl p-4 shadow-sm">
           <p class="text-xs font-semibold text-pink-400 uppercase tracking-widest mb-3">Role snapshot</p>
           <div class="flex gap-2 mb-2">
@@ -159,15 +168,13 @@
 
     <!-- Timer + Notepad -->
     <div class="grid grid-cols-2 gap-4">
-      <!-- Pomodoro -->
       <div class="bg-white border border-pink-100 rounded-2xl p-4 shadow-sm">
         <p class="text-xs font-semibold text-pink-400 uppercase tracking-widest mb-4">Focus timer</p>
         <div class="flex flex-col items-center">
           <div class="relative w-24 h-24 mb-3">
             <svg width="96" height="96" viewBox="0 0 96 96" class="block">
               <circle cx="48" cy="48" r="40" fill="none" stroke="#FFD6E7" stroke-width="6"/>
-              <circle id="pomo-arc" cx="48" cy="48" r="40" fill="none" stroke="#F8C8DC" stroke-width="6"
-                stroke-dasharray="251.3" stroke-dashoffset="0" stroke-linecap="round"/>
+              <circle id="pomo-arc" cx="48" cy="48" r="40" fill="none" stroke="#F8C8DC" stroke-width="6" stroke-dasharray="251.3" stroke-dashoffset="0" stroke-linecap="round"/>
             </svg>
             <span id="pomo-display" class="absolute inset-0 flex items-center justify-center text-base font-semibold font-mono text-pink-600">25:00</span>
           </div>
@@ -177,14 +184,12 @@
             <button onclick="pomoReset()" class="px-3 py-1.5 text-xs font-medium bg-gray-100 hover:bg-gray-200 text-gray-500 rounded-xl transition">Reset</button>
             <button id="pomo-switch-btn" onclick="pomoSwitch()" class="px-3 py-1.5 text-xs font-medium bg-lavender-200 hover:bg-lavender-300 text-lavender-700 rounded-xl transition">Break</button>
           </div>
-          <!-- Tomato counter -->
           <div class="mt-4 pt-4 border-t border-pink-100 text-center">
             <p class="text-xs text-pink-400 mb-2 uppercase tracking-widest font-semibold">Today's pomodoros</p>
             <div id="tomato-counter" class="text-3xl tracking-wider"></div>
           </div>
         </div>
       </div>
-      <!-- Notepad -->
       <div class="bg-white border border-pink-100 rounded-2xl p-4 shadow-sm">
         <p class="text-xs font-semibold text-pink-400 uppercase tracking-widest mb-3">Notepad</p>
         <textarea id="notepad" placeholder="Jot down anything..."
@@ -198,13 +203,13 @@
   <!-- ===== ROLE TABS (KANBAN - DYNAMIC) ===== -->
   <div id="role-tabs-container"></div>
 
-  <!-- ===== ALL TASKS TAB (KANBAN) ===== -->
+  <!-- ===== ALL TASKS TAB ===== -->
   <div id="tab-all" class="tab-content hidden fade-in">
     <div class="flex gap-2 mb-4 flex-wrap">
-      <button class="date-filter-badge active" onclick="setDateFilter('all', 'all')" data-filter="all">All</button>
-      <button class="date-filter-badge" onclick="setDateFilter('all', 'today')" data-filter="today">Today</button>
-      <button class="date-filter-badge" onclick="setDateFilter('all', 'week')" data-filter="week">This week</button>
-      <button class="date-filter-badge" onclick="setDateFilter('all', 'month')" data-filter="month">This month</button>
+      <button class="date-filter-badge active" onclick="setDateFilter('all','all')"   data-filter="all">All</button>
+      <button class="date-filter-badge"        onclick="setDateFilter('all','today')" data-filter="today">Today</button>
+      <button class="date-filter-badge"        onclick="setDateFilter('all','week')"  data-filter="week">This week</button>
+      <button class="date-filter-badge"        onclick="setDateFilter('all','month')" data-filter="month">This month</button>
     </div>
     <div id="kanban-all" class="kanban-board"></div>
   </div>
@@ -235,8 +240,8 @@
       </div>
       <div class="modal-actions">
         <button class="modal-btn modal-btn-secondary" onclick="markTaskDone()">Mark Done</button>
-        <button class="modal-btn modal-btn-danger" onclick="deleteCurrentTask()">Delete</button>
-        <button class="modal-btn modal-btn-primary" onclick="closeTaskModal()">Close</button>
+        <button class="modal-btn modal-btn-danger"    onclick="deleteCurrentTask()">Delete</button>
+        <button class="modal-btn modal-btn-primary"   onclick="closeTaskModal()">Close</button>
       </div>
     </div>
   </div>
@@ -251,10 +256,8 @@
       <div class="modal-body">
         <div class="modal-section">
           <span class="modal-label">Custom Roles (Max 4)</span>
-          <p style="font-size: 0.8rem; color: #999; margin: 0.5rem 0;">Edit your role names to match your lifestyle</p>
-          <div id="roles-editor" style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 1rem;">
-            <!-- Role inputs will be generated here -->
-          </div>
+          <p style="font-size:0.8rem;color:#999;margin:0.5rem 0;">Edit your role names and colors</p>
+          <div id="roles-editor" style="display:flex;flex-direction:column;gap:0.75rem;margin-top:1rem;"></div>
         </div>
       </div>
       <div class="modal-actions">
@@ -262,10 +265,9 @@
       </div>
     </div>
   </div>
-  
+
 </div>
 
-<!-- ===== SCRIPTS ===== -->
 <script src="scripts.js"></script>
 </body>
 </html>
