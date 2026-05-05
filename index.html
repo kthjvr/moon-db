@@ -39,7 +39,7 @@
 <!-- ===== LOGIN SCREEN ===== -->
 <div id="login-screen" class="min-h-screen flex items-center justify-center" style="background:#FFF7FA;">
   <div style="text-align:center; padding:2.5rem; background:white; border-radius:2rem; border:1px solid #FFD6E7; box-shadow:0 8px 40px rgba(200,80,120,0.10); max-width:380px; width:90%;">
-    <div style="font-size:3rem; margin-bottom:0.75rem;">🌙</div>
+    <img src="https://ik.imagekit.io/e3wiv79bq/Assets-DP/Moon%20DB.ico" alt="Moon DB Logo" style="width:48px;height:48px;margin:0 auto 0.75rem;display:block;">
     <h1 style="font-size:1.5rem; font-weight:600; color:#802840; margin-bottom:0.5rem; font-family:'DM Sans',sans-serif;">Moon DB</h1>
     <p style="font-size:0.875rem; color:#C08090; margin-bottom:2rem; font-family:'DM Sans',sans-serif;">Your personal productivity dashboard</p>
     <button onclick="signInWithGoogle()"
@@ -76,7 +76,7 @@
   <!-- TOPBAR -->
   <header class="sticky top-0 z-50 bg-cream/90 backdrop-blur-sm border-b border-pink-100 flex items-center justify-between py-3 px-1">
     <div class="flex items-center gap-2">
-      <span class="text-xl">🌙</span>
+      <img src="https://ik.imagekit.io/e3wiv79bq/Assets-DP/Moon%20DB.ico" alt="Moon DB Logo" style="width:28px;height:28px;">
       <span class="text-base font-semibold text-pink-700 tracking-tight">Moon DB</span>
     </div>
     <div class="flex items-center gap-3">
@@ -85,7 +85,7 @@
       <!-- User info -->
       <div class="flex items-center gap-2 pl-3 border-l border-pink-100">
         <div id="user-avatar"></div>
-        <span id="user-name" class="text-xs text-pink-500 font-medium max-w-[120px] truncate"></span>
+        <span id="user-name" class="text-xs text-pink-500 font-medium max-w-[120px] truncate cursor-pointer hover:text-pink-600 transition" onclick="editDisplayName()" title="Click to edit"></span>
         <button onclick="signOut()"
           style="font-size:0.7rem;padding:0.25rem 0.6rem;background:#FFE0E8;border:none;border-radius:0.5rem;color:#C05070;cursor:pointer;font-weight:500;font-family:'DM Sans',sans-serif;"
           onmouseover="this.style.background='#FFD0E0'" onmouseout="this.style.background='#FFE0E8'">
@@ -218,7 +218,14 @@
   <div id="task-modal-overlay" class="modal-overlay" onclick="closeTaskModal(event)">
     <div class="modal-content" onclick="event.stopPropagation()">
       <div class="modal-header">
-        <h2 id="modal-task-title" class="modal-title"></h2>
+        <div style="flex:1;">
+          <h2 id="modal-task-title" class="modal-title" onclick="startEditTaskTitle()" style="cursor:pointer;position:relative;" title="Click to edit"></h2>
+          <input id="modal-task-title-input" type="text" class="hidden" style="width:100%;padding:0.5rem;border:2px solid #A888E0;border-radius:0.5rem;font-size:1.25rem;font-weight:600;font-family:'DM Sans',sans-serif;color:#802840;" />
+          <div id="modal-edit-buttons" class="hidden flex gap-2 mt-2">
+            <button onclick="saveTaskTitle()" class="px-3 py-1 text-xs bg-lavender-200 text-lavender-700 rounded-lg font-medium hover:bg-lavender-300 transition">Save</button>
+            <button onclick="cancelEditTaskTitle()" class="px-3 py-1 text-xs bg-gray-100 text-gray-500 rounded-lg font-medium hover:bg-gray-200 transition">Cancel</button>
+          </div>
+        </div>
         <button class="modal-close" onclick="closeTaskModal()">×</button>
       </div>
       <div class="modal-body">
@@ -290,5 +297,11 @@
 </div>
 
 <script src="scripts.js"></script>
+
+<!-- ===== FOOTER ===== -->
+<footer style="background:#FFF7FA;border-top:1px solid #FFD6E7;padding:1.5rem;text-align:center;margin-top:4rem;">
+  <p style="font-size:0.75rem;color:#C08090;margin:0;font-family:'DM Sans',sans-serif;">© All rights reserved. Made by Kathy</p>
+</footer>
+
 </body>
 </html>

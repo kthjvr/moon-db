@@ -78,6 +78,9 @@ let tomatoCount = 0;
 let tomatoDate  = todayISO();
 let quickTitle  = '';
 
+// Editing state
+let isEditingTaskTitle = false;
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 function todayISO() { return new Date().toISOString().split('T')[0]; }
 
@@ -143,12 +146,88 @@ function showAppScreen() {
 function updateUserDisplay(user) {
   const nameEl   = document.getElementById('user-name');
   const avatarEl = document.getElementById('user-avatar');
-  if (nameEl) nameEl.textContent = user.displayName || user.email;
+  const displayName = user.displayName || user.email || 'User';
+  if (nameEl) nameEl.textContent = displayName;
   if (avatarEl) {
     avatarEl.innerHTML = user.photoURL
       ? `<img src="${user.photoURL}" alt="avatar" style="width:28px;height:28px;border-radius:50%;object-fit:cover;" />`
-      : `<span style="width:28px;height:28px;border-radius:50%;background:#F8C8DC;color:#802840;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;">${(user.displayName || user.email || 'U')[0].toUpperCase()}</span>`;
+      : `<span style="width:28px;height:28px;border-radius:50%;background:#F8C8DC;color:#802840;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;">${displayName[0].toUpperCase()}</span>`;
   }
+}
+
+// ─── Display name editing ────────────────────────────────────────────────────
+function editDisplayName() {
+  const newName = prompt('Edit your display name:', currentUser.displayName || currentUser.email || 'User');
+  if (newName === null || newName.trim() === '') return;
+  
+  currentUser.updateProfile({ displayName: newName.trim() })
+    .then(() => {
+      updateUserDisplay(currentUser);
+      // Save to Firestore
+      userDoc().update({ displayName: newName.trim() }).catch(() => {});
+    })
+    .catch(err => {
+      console.error('Error updating display name:', err);
+      alert('Failed to update display name.');
+    });
+}
+
+// ─── Task title editing ──────────────────────────────────────────────────────
+function startEditTaskTitle() {
+  if (isEditingTaskTitle) return;
+  isEditingTaskTitle = true;
+  
+  const titleEl = document.getElementById('modal-task-title');
+  const inputEl = document.getElementById('modal-task-title-input');
+  const buttonsEl = document.getElementById('modal-edit-buttons');
+  
+  if (titleEl && inputEl && buttonsEl) {
+    inputEl.value = titleEl.textContent;
+    titleEl.classList.add('hidden');
+    inputEl.classList.remove('hidden');
+    buttonsEl.classList.remove('hidden');
+    inputEl.focus();
+    inputEl.select();
+  }
+}
+
+function saveTaskTitle() {
+  const inputEl = document.getElementById('modal-task-title-input');
+  const newTitle = inputEl.value.trim();
+  
+  if (!newTitle) {
+    alert('Task title cannot be empty.');
+    return;
+  }
+  
+  const task = window.currentModalTask;
+  if (task) {
+    task.title = newTitle;
+    saveData();
+    
+    // Update modal display
+    const titleEl = document.getElementById('modal-task-title');
+    titleEl.textContent = newTitle;
+    
+    // Hide input and show title
+    titleEl.classList.remove('hidden');
+    inputEl.classList.add('hidden');
+    document.getElementById('modal-edit-buttons').classList.add('hidden');
+    isEditingTaskTitle = false;
+    
+    render();
+  }
+}
+
+function cancelEditTaskTitle() {
+  const titleEl = document.getElementById('modal-task-title');
+  const inputEl = document.getElementById('modal-task-title-input');
+  const buttonsEl = document.getElementById('modal-edit-buttons');
+  
+  titleEl.classList.remove('hidden');
+  inputEl.classList.add('hidden');
+  buttonsEl.classList.add('hidden');
+  isEditingTaskTitle = false;
 }
 
 // ─── Color helpers ────────────────────────────────────────────────────────────
@@ -221,6 +300,7 @@ async function saveToFirestore() {
     await userDoc().set({
       tasks, nextId, roles, roleColorMap, tomatoCount, tomatoDate,
       note:      noteEl ? noteEl.value : '',
+      displayName: currentUser.displayName || '',
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     });
   } catch (err) {
@@ -356,7 +436,7 @@ function taskRowHTML(t, showDelete) {
         ${t.done?'<span class="w-1.5 h-1.5 rounded-full bg-lavender-500 block"></span>':''}
       </button>
       <div class="flex-1 min-w-0">
-        <p class="text-sm text-gray-700 leading-snug ${t.done?'line-through text-gray-300':''}">${t.title}</p>
+        <p class="text-sm text-gray-700 leading-snug ${t.done?'line-through text-gray-300':''}" onclick="showTaskDetail(tasks.find(x => x.id === ${t.id}))" style="cursor:pointer;hover:text-pink-600;">${t.title}</p>
         <div class="flex flex-wrap items-center gap-1.5 mt-1.5">
           ${rolePill(t.role)}${statusPill(t.status)}${priPill(t.priority)}
           ${t.due?`<span class="text-[11px] font-mono ${overdue&&!t.done?'text-red-400 font-semibold':'text-gray-300'}">${formatDate(t.due)}</span>`:''}
@@ -705,6 +785,13 @@ function updateCalendarEvents() {
 function showTaskDetail(task) {
   const modal = document.getElementById('task-modal-overlay'); if (!modal) return;
   window.currentModalTask = task;
+  
+  // Reset editing state
+  isEditingTaskTitle = false;
+  document.getElementById('modal-task-title').classList.remove('hidden');
+  document.getElementById('modal-task-title-input').classList.add('hidden');
+  document.getElementById('modal-edit-buttons').classList.add('hidden');
+  
   setText('modal-task-title', task.title);
   const sEl = document.getElementById('modal-status-pill');
   const pEl = document.getElementById('modal-priority-pill');
@@ -773,6 +860,7 @@ function exportData() {
     note: document.getElementById('notepad')?.value || '',
     tomatoCount, 
     tomatoDate,
+    displayName: currentUser?.displayName || '',
     exportedAt: new Date().toISOString(),
   };
   

@@ -1,5 +1,4 @@
-
-    body { background-color: #FFF7FA; font-family: 'DM Sans', sans-serif; }
+body { background-color: #FFF7FA; font-family: 'DM Sans', sans-serif; }
 
     /* Scrollbar */
     ::-webkit-scrollbar { width: 6px; }
