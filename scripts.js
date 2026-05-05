@@ -69,6 +69,7 @@ let dateFilters  = {};
 let draggedTask  = null;
 let calendar     = null;
 /** @type {Object|null} */           let currentUser  = null;
+/** @type {Record<string,string>} */ let sortDirections = {};
 
 let pomoMode    = 'focus';
 let pomoRunning = false;
@@ -386,7 +387,19 @@ function renderRoleSnapshot() {
 // ─── Render: Kanban ───────────────────────────────────────────────────────────
 function renderKanban(role, elId, dateFilter) {
   const el = document.getElementById(elId); if (!el) return;
-  const filtered = tasks.filter(t => (role === null || t.role === role) && matchesDateFilter(t, dateFilter));
+  let filtered = tasks.filter(t => (role === null || t.role === role) && matchesDateFilter(t, dateFilter));
+  
+  // Get sort direction for this tab (default to asc)
+  const tabKey = role === null ? 'all' : role.toLowerCase().replace(/\s+/g, '_');
+  const sortDir = sortDirections[tabKey] || 'asc';
+  
+  // Sort by due date
+  filtered = filtered.sort((a, b) => {
+    const aDate = a.due ? new Date(a.due) : new Date('9999-12-31');
+    const bDate = b.due ? new Date(b.due) : new Date('9999-12-31');
+    return sortDir === 'asc' ? aDate - bDate : bDate - aDate;
+  });
+  
   let html = '';
   for (const status of STATUSES) {
     const statusTasks = filtered.filter(t => t.status === status);
@@ -528,6 +541,24 @@ function setDateFilter(tab, filter) {
   render();
 }
 
+function setSortDirection(tab, direction) {
+  sortDirections[tab] = direction;
+  
+  // Update button styles
+  const ascBtn = document.getElementById(`sort-${tab}-asc`);
+  const descBtn = document.getElementById(`sort-${tab}-desc`);
+  
+  if (direction === 'asc') {
+    if (ascBtn) { ascBtn.style.background='#E6D6FF'; ascBtn.style.color='#6040A0'; ascBtn.style.borderColor='#A888E0'; }
+    if (descBtn) { descBtn.style.background='white'; descBtn.style.color='#999'; descBtn.style.borderColor='#FFD6E7'; }
+  } else {
+    if (descBtn) { descBtn.style.background='#E6D6FF'; descBtn.style.color='#6040A0'; descBtn.style.borderColor='#A888E0'; }
+    if (ascBtn) { ascBtn.style.background='white'; ascBtn.style.color='#999'; ascBtn.style.borderColor='#FFD6E7'; }
+  }
+  
+  render();
+}
+
 // ─── Tab switching ────────────────────────────────────────────────────────────
 function switchTab(tab) {
   activeTab = tab;
@@ -637,11 +668,23 @@ function renderRoleTabs() {
     const key = role.toLowerCase().replace(/\s+/g, '_');
     return `
       <div id="tab-${key}" class="tab-content hidden fade-in">
-        <div class="flex gap-2 mb-4 flex-wrap">
+        <div class="flex gap-2 mb-4 flex-wrap items-center">
           <button class="date-filter-badge active" onclick="setDateFilter('${key}','all')"   data-filter="all">All</button>
           <button class="date-filter-badge"        onclick="setDateFilter('${key}','today')" data-filter="today">Today</button>
           <button class="date-filter-badge"        onclick="setDateFilter('${key}','week')"  data-filter="week">This week</button>
           <button class="date-filter-badge"        onclick="setDateFilter('${key}','month')" data-filter="month">This month</button>
+          <div style="margin-left:auto;display:flex;gap:0.5rem;">
+            <button onclick="setSortDirection('${key}','asc')" id="sort-${key}-asc"
+              style="padding:0.5rem 0.75rem;border-radius:0.75rem;font-size:0.875rem;font-weight:500;cursor:pointer;transition:all 0.2s;background:white;color:#999;border:2px solid #FFD6E7;"
+              onmouseover="this.style.borderColor='#F0A0C0'" onmouseout="this.style.borderColor='#FFD6E7'">
+              📅 Earliest first
+            </button>
+            <button onclick="setSortDirection('${key}','desc')" id="sort-${key}-desc"
+              style="padding:0.5rem 0.75rem;border-radius:0.75rem;font-size:0.875rem;font-weight:500;cursor:pointer;transition:all 0.2s;background:white;color:#999;border:2px solid #FFD6E7;"
+              onmouseover="this.style.borderColor='#F0A0C0'" onmouseout="this.style.borderColor='#FFD6E7'">
+              📅 Latest first
+            </button>
+          </div>
         </div>
         <div id="kanban-${key}" class="kanban-board"></div>
       </div>`;
@@ -801,6 +844,18 @@ function showTaskDetail(task) {
   if (pEl) pEl.innerHTML = priPill(task.priority);
   if (rEl) rEl.innerHTML = rolePill(task.role);
   if (dEl) dEl.textContent = task.due ? formatDate(task.due) : 'No due date';
+  
+  // Show/hide undo and done buttons based on task status
+  const undoBtn = document.getElementById('modal-undo-btn');
+  const doneBtn = document.getElementById('modal-done-btn');
+  if (task.done) {
+    if (undoBtn) undoBtn.classList.remove('hidden');
+    if (doneBtn) doneBtn.classList.add('hidden');
+  } else {
+    if (undoBtn) undoBtn.classList.add('hidden');
+    if (doneBtn) doneBtn.classList.remove('hidden');
+  }
+  
   modal.classList.add('active');
 }
 function closeTaskModal(e) {
@@ -811,6 +866,10 @@ function closeTaskModal(e) {
 function markTaskDone() {
   const task = window.currentModalTask;
   if (task) { task.done = true; task.status = 'Done'; saveData(); render(); closeTaskModal(); }
+}
+function markTaskUndone() {
+  const task = window.currentModalTask;
+  if (task) { task.done = false; task.status = 'Backlog'; saveData(); render(); closeTaskModal(); }
 }
 function deleteCurrentTask() {
   const task = window.currentModalTask;

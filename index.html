@@ -205,11 +205,23 @@
 
   <!-- ===== ALL TASKS TAB ===== -->
   <div id="tab-all" class="tab-content hidden fade-in">
-    <div class="flex gap-2 mb-4 flex-wrap">
+    <div class="flex gap-2 mb-4 flex-wrap items-center">
       <button class="date-filter-badge active" onclick="setDateFilter('all','all')"   data-filter="all">All</button>
       <button class="date-filter-badge"        onclick="setDateFilter('all','today')" data-filter="today">Today</button>
       <button class="date-filter-badge"        onclick="setDateFilter('all','week')"  data-filter="week">This week</button>
       <button class="date-filter-badge"        onclick="setDateFilter('all','month')" data-filter="month">This month</button>
+      <div style="margin-left:auto;display:flex;gap:0.5rem;">
+        <button onclick="setSortDirection('all','asc')" id="sort-all-asc" 
+          style="padding:0.5rem 0.75rem;border-radius:0.75rem;font-size:0.875rem;font-weight:500;cursor:pointer;transition:all 0.2s;background:white;color:#999;border:2px solid #FFD6E7;" 
+          onmouseover="this.style.borderColor='#F0A0C0'" onmouseout="this.style.borderColor='#FFD6E7'">
+          📅 Earliest first
+        </button>
+        <button onclick="setSortDirection('all','desc')" id="sort-all-desc"
+          style="padding:0.5rem 0.75rem;border-radius:0.75rem;font-size:0.875rem;font-weight:500;cursor:pointer;transition:all 0.2s;background:white;color:#999;border:2px solid #FFD6E7;"
+          onmouseover="this.style.borderColor='#F0A0C0'" onmouseout="this.style.borderColor='#FFD6E7'">
+          📅 Latest first
+        </button>
+      </div>
     </div>
     <div id="kanban-all" class="kanban-board"></div>
   </div>
@@ -246,7 +258,8 @@
         </div>
       </div>
       <div class="modal-actions">
-        <button class="modal-btn modal-btn-secondary" onclick="markTaskDone()">Mark Done</button>
+        <button id="modal-undo-btn" class="modal-btn modal-btn-secondary hidden" onclick="markTaskUndone()">↩️ Undo</button>
+        <button id="modal-done-btn" class="modal-btn modal-btn-secondary" onclick="markTaskDone()">Mark Done</button>
         <button class="modal-btn modal-btn-danger"    onclick="deleteCurrentTask()">Delete</button>
         <button class="modal-btn modal-btn-primary"   onclick="closeTaskModal()">Close</button>
       </div>
