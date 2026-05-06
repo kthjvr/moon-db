@@ -70,6 +70,8 @@ let draggedTask  = null;
 let calendar     = null;
 /** @type {Object|null} */           let currentUser  = null;
 /** @type {Record<string,string>} */ let sortDirections = {};
+/** @type {Chart|null} */            let analyticsChart = null;
+let analyticsFilter = 'today';
 
 let pomoMode    = 'focus';
 let pomoRunning = false;
@@ -577,7 +579,7 @@ function switchTab(tab) {
 // ─── Full render ──────────────────────────────────────────────────────────────
 function render() {
   if (activeTab === 'overview') {
-    renderMetrics(); renderToday(); renderUrgent(); renderRoleSnapshot(); updateCalendarEvents();
+    renderMetrics(); renderToday(); renderUrgent(); renderRoleSnapshot(); updateCalendarEvents(); renderAnalyticsChart();
   } else if (activeTab === 'all') {
     renderKanban(null, 'kanban-all', dateFilters.all || 'all');
   } else {
@@ -876,6 +878,156 @@ function deleteCurrentTask() {
   if (task && confirm(`Delete "${task.title}"?`)) { deleteTask(task.id); closeTaskModal(); }
 }
 
+// ─── Analytics ────────────────────────────────────────────────────────────────
+function getAnalyticsData(filter) {
+  const today = new Date(todayISO());
+  let startDate = new Date(today);
+  let endDate = new Date(today);
+  endDate.setHours(23, 59, 59, 999);
+  
+  if (filter === 'week') {
+    startDate.setDate(today.getDate() - 6); // Last 7 days including today
+  } else if (filter === 'month') {
+    startDate.setDate(today.getDate() - 29); // Last 30 days including today
+  }
+  
+  // Prepare data points
+  let dataPoints = [];
+  let labels = [];
+  let completedTasksData = [];
+  let focusHoursData = [];
+  
+  const currentDate = new Date(startDate);
+  while (currentDate <= today) {
+    const dateStr = currentDate.toISOString().split('T')[0];
+    labels.push(new Date(currentDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+    
+    // Count completed tasks for this date
+    const completedCount = tasks.filter(t => t.done && t.due === dateStr).length;
+    completedTasksData.push(completedCount);
+    
+    // Calculate focus hours - assuming each pomodoro is 25 minutes (0.42 hours)
+    // We'll estimate based on tomatoCount for today, or 0 for past days
+    let focusHours = 0;
+    if (dateStr === tomatoDate) {
+      focusHours = (tomatoCount * 25) / 60; // Convert minutes to hours
+    }
+    focusHoursData.push(Math.round(focusHours * 10) / 10); // Round to 1 decimal
+    
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
+  
+  return { labels, completedTasksData, focusHoursData };
+}
+
+function renderAnalyticsChart() {
+  const data = getAnalyticsData(analyticsFilter);
+  const ctx = document.getElementById('analyticsChart');
+  if (!ctx) return;
+  
+  // Destroy existing chart if it exists
+  if (analyticsChart) {
+    analyticsChart.destroy();
+  }
+  
+  analyticsChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: data.labels,
+      datasets: [
+        {
+          label: 'Completed Tasks',
+          data: data.completedTasksData,
+          backgroundColor: '#FFD6E7',
+          borderColor: '#F8C8DC',
+          borderWidth: 2,
+          borderRadius: 6,
+          yAxisID: 'y',
+        },
+        {
+          label: 'Focus Hours',
+          data: data.focusHoursData,
+          backgroundColor: '#E6D6FF',
+          borderColor: '#CDB8F5',
+          borderWidth: 2,
+          borderRadius: 6,
+          yAxisID: 'y1',
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      interaction: {
+        mode: 'index',
+        intersect: false,
+      },
+      plugins: {
+        legend: {
+          display: true,
+          position: 'top',
+          labels: {
+            font: { family: "'DM Sans', sans-serif", size: 12, weight: '500' },
+            color: '#C05070',
+            padding: 15,
+            usePointStyle: true,
+          },
+        },
+        tooltip: {
+          backgroundColor: '#802840',
+          titleColor: '#FFF7FA',
+          bodyColor: '#FFF7FA',
+          borderColor: '#F0A0C0',
+          borderWidth: 1,
+          padding: 10,
+          titleFont: { family: "'DM Sans', sans-serif", weight: '600' },
+          bodyFont: { family: "'DM Sans', sans-serif", size: 12 },
+        },
+      },
+      scales: {
+        x: {
+          ticks: {
+            font: { family: "'DM Sans', sans-serif", size: 11 },
+            color: '#C08090',
+          },
+          grid: { display: false },
+        },
+        y: {
+          type: 'linear',
+          display: true,
+          position: 'left',
+          title: { display: true, text: 'Completed Tasks', font: { family: "'DM Sans', sans-serif", weight: '500', size: 11 }, color: '#C05070' },
+          ticks: { font: { family: "'DM Sans', sans-serif", size: 11 }, color: '#C08090' },
+          grid: { color: 'rgba(240, 160, 192, 0.1)' },
+        },
+        y1: {
+          type: 'linear',
+          display: true,
+          position: 'right',
+          title: { display: true, text: 'Focus Hours', font: { family: "'DM Sans', sans-serif", weight: '500', size: 11 }, color: '#6040A0' },
+          ticks: { font: { family: "'DM Sans', sans-serif", size: 11 }, color: '#6040A0' },
+          grid: { drawOnChartArea: false },
+        },
+      },
+    },
+  });
+}
+
+function setAnalyticsFilter(filter) {
+  analyticsFilter = filter;
+  
+  // Update button styles
+  document.querySelectorAll('.analytics-filter-btn').forEach(btn => {
+    btn.classList.remove('active', 'bg-pink-200', 'text-pink-700');
+    btn.classList.add('bg-white', 'text-gray-500', 'border', 'border-pink-100');
+  });
+  
+  document.getElementById(`analytics-${filter}`).classList.add('active', 'bg-pink-200', 'text-pink-700');
+  document.getElementById(`analytics-${filter}`).classList.remove('bg-white', 'text-gray-500', 'border', 'border-pink-100');
+  
+  renderAnalyticsChart();
+}
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 (function init() {
   auth.onAuthStateChanged(async (user) => {
@@ -895,6 +1047,7 @@ function deleteCurrentTask() {
       updatePomoDisplay();
       updateTomatoDisplay();
       setTimeout(() => { initCalendar(); }, 100);
+      setTimeout(() => { renderAnalyticsChart(); }, 150);
 
       const notepad = document.getElementById('notepad');
       if (notepad) {
