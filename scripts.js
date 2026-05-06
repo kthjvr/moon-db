@@ -69,6 +69,7 @@ let dateFilters  = {};
 let draggedTask  = null;
 let calendar     = null;
 /** @type {Object|null} */           let currentUser  = null;
+/** @type {Record<string,string>} */ let sortDirections = {};
 
 let pomoMode    = 'focus';
 let pomoRunning = false;
@@ -77,6 +78,9 @@ let pomoSeconds = POMO_DURATIONS.focus;
 let tomatoCount = 0;
 let tomatoDate  = todayISO();
 let quickTitle  = '';
+
+// Editing state
+let isEditingTaskTitle = false;
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 function todayISO() { return new Date().toISOString().split('T')[0]; }
@@ -143,12 +147,88 @@ function showAppScreen() {
 function updateUserDisplay(user) {
   const nameEl   = document.getElementById('user-name');
   const avatarEl = document.getElementById('user-avatar');
-  if (nameEl) nameEl.textContent = user.displayName || user.email;
+  const displayName = user.displayName || user.email || 'User';
+  if (nameEl) nameEl.textContent = displayName;
   if (avatarEl) {
     avatarEl.innerHTML = user.photoURL
       ? `<img src="${user.photoURL}" alt="avatar" style="width:28px;height:28px;border-radius:50%;object-fit:cover;" />`
-      : `<span style="width:28px;height:28px;border-radius:50%;background:#F8C8DC;color:#802840;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;">${(user.displayName || user.email || 'U')[0].toUpperCase()}</span>`;
+      : `<span style="width:28px;height:28px;border-radius:50%;background:#F8C8DC;color:#802840;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;">${displayName[0].toUpperCase()}</span>`;
   }
+}
+
+// ─── Display name editing ────────────────────────────────────────────────────
+function editDisplayName() {
+  const newName = prompt('Edit your display name:', currentUser.displayName || currentUser.email || 'User');
+  if (newName === null || newName.trim() === '') return;
+  
+  currentUser.updateProfile({ displayName: newName.trim() })
+    .then(() => {
+      updateUserDisplay(currentUser);
+      // Save to Firestore
+      userDoc().update({ displayName: newName.trim() }).catch(() => {});
+    })
+    .catch(err => {
+      console.error('Error updating display name:', err);
+      alert('Failed to update display name.');
+    });
+}
+
+// ─── Task title editing ──────────────────────────────────────────────────────
+function startEditTaskTitle() {
+  if (isEditingTaskTitle) return;
+  isEditingTaskTitle = true;
+  
+  const titleEl = document.getElementById('modal-task-title');
+  const inputEl = document.getElementById('modal-task-title-input');
+  const buttonsEl = document.getElementById('modal-edit-buttons');
+  
+  if (titleEl && inputEl && buttonsEl) {
+    inputEl.value = titleEl.textContent;
+    titleEl.classList.add('hidden');
+    inputEl.classList.remove('hidden');
+    buttonsEl.classList.remove('hidden');
+    inputEl.focus();
+    inputEl.select();
+  }
+}
+
+function saveTaskTitle() {
+  const inputEl = document.getElementById('modal-task-title-input');
+  const newTitle = inputEl.value.trim();
+  
+  if (!newTitle) {
+    alert('Task title cannot be empty.');
+    return;
+  }
+  
+  const task = window.currentModalTask;
+  if (task) {
+    task.title = newTitle;
+    saveData();
+    
+    // Update modal display
+    const titleEl = document.getElementById('modal-task-title');
+    titleEl.textContent = newTitle;
+    
+    // Hide input and show title
+    titleEl.classList.remove('hidden');
+    inputEl.classList.add('hidden');
+    document.getElementById('modal-edit-buttons').classList.add('hidden');
+    isEditingTaskTitle = false;
+    
+    render();
+  }
+}
+
+function cancelEditTaskTitle() {
+  const titleEl = document.getElementById('modal-task-title');
+  const inputEl = document.getElementById('modal-task-title-input');
+  const buttonsEl = document.getElementById('modal-edit-buttons');
+  
+  titleEl.classList.remove('hidden');
+  inputEl.classList.add('hidden');
+  buttonsEl.classList.add('hidden');
+  isEditingTaskTitle = false;
 }
 
 // ─── Color helpers ────────────────────────────────────────────────────────────
@@ -221,6 +301,7 @@ async function saveToFirestore() {
     await userDoc().set({
       tasks, nextId, roles, roleColorMap, tomatoCount, tomatoDate,
       note:      noteEl ? noteEl.value : '',
+      displayName: currentUser.displayName || '',
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     });
   } catch (err) {
@@ -306,7 +387,19 @@ function renderRoleSnapshot() {
 // ─── Render: Kanban ───────────────────────────────────────────────────────────
 function renderKanban(role, elId, dateFilter) {
   const el = document.getElementById(elId); if (!el) return;
-  const filtered = tasks.filter(t => (role === null || t.role === role) && matchesDateFilter(t, dateFilter));
+  let filtered = tasks.filter(t => (role === null || t.role === role) && matchesDateFilter(t, dateFilter));
+  
+  // Get sort direction for this tab (default to asc)
+  const tabKey = role === null ? 'all' : role.toLowerCase().replace(/\s+/g, '_');
+  const sortDir = sortDirections[tabKey] || 'asc';
+  
+  // Sort by due date
+  filtered = filtered.sort((a, b) => {
+    const aDate = a.due ? new Date(a.due) : new Date('9999-12-31');
+    const bDate = b.due ? new Date(b.due) : new Date('9999-12-31');
+    return sortDir === 'asc' ? aDate - bDate : bDate - aDate;
+  });
+  
   let html = '';
   for (const status of STATUSES) {
     const statusTasks = filtered.filter(t => t.status === status);
@@ -356,7 +449,7 @@ function taskRowHTML(t, showDelete) {
         ${t.done?'<span class="w-1.5 h-1.5 rounded-full bg-lavender-500 block"></span>':''}
       </button>
       <div class="flex-1 min-w-0">
-        <p class="text-sm text-gray-700 leading-snug ${t.done?'line-through text-gray-300':''}">${t.title}</p>
+        <p class="text-sm text-gray-700 leading-snug ${t.done?'line-through text-gray-300':''}" onclick="showTaskDetail(tasks.find(x => x.id === ${t.id}))" style="cursor:pointer;hover:text-pink-600;">${t.title}</p>
         <div class="flex flex-wrap items-center gap-1.5 mt-1.5">
           ${rolePill(t.role)}${statusPill(t.status)}${priPill(t.priority)}
           ${t.due?`<span class="text-[11px] font-mono ${overdue&&!t.done?'text-red-400 font-semibold':'text-gray-300'}">${formatDate(t.due)}</span>`:''}
@@ -445,6 +538,24 @@ function setDateFilter(tab, filter) {
   document.querySelectorAll(`#tab-${tab} .date-filter-badge`).forEach(btn => {
     btn.classList.toggle('active', btn.getAttribute('data-filter') === filter);
   });
+  render();
+}
+
+function setSortDirection(tab, direction) {
+  sortDirections[tab] = direction;
+  
+  // Update button styles
+  const ascBtn = document.getElementById(`sort-${tab}-asc`);
+  const descBtn = document.getElementById(`sort-${tab}-desc`);
+  
+  if (direction === 'asc') {
+    if (ascBtn) { ascBtn.style.background='#E6D6FF'; ascBtn.style.color='#6040A0'; ascBtn.style.borderColor='#A888E0'; }
+    if (descBtn) { descBtn.style.background='white'; descBtn.style.color='#999'; descBtn.style.borderColor='#FFD6E7'; }
+  } else {
+    if (descBtn) { descBtn.style.background='#E6D6FF'; descBtn.style.color='#6040A0'; descBtn.style.borderColor='#A888E0'; }
+    if (ascBtn) { ascBtn.style.background='white'; ascBtn.style.color='#999'; ascBtn.style.borderColor='#FFD6E7'; }
+  }
+  
   render();
 }
 
@@ -557,11 +668,23 @@ function renderRoleTabs() {
     const key = role.toLowerCase().replace(/\s+/g, '_');
     return `
       <div id="tab-${key}" class="tab-content hidden fade-in">
-        <div class="flex gap-2 mb-4 flex-wrap">
+        <div class="flex gap-2 mb-4 flex-wrap items-center">
           <button class="date-filter-badge active" onclick="setDateFilter('${key}','all')"   data-filter="all">All</button>
           <button class="date-filter-badge"        onclick="setDateFilter('${key}','today')" data-filter="today">Today</button>
           <button class="date-filter-badge"        onclick="setDateFilter('${key}','week')"  data-filter="week">This week</button>
           <button class="date-filter-badge"        onclick="setDateFilter('${key}','month')" data-filter="month">This month</button>
+          <div style="margin-left:auto;display:flex;gap:0.5rem;">
+            <button onclick="setSortDirection('${key}','asc')" id="sort-${key}-asc"
+              style="padding:0.5rem 0.75rem;border-radius:0.75rem;font-size:0.875rem;font-weight:500;cursor:pointer;transition:all 0.2s;background:white;color:#999;border:2px solid #FFD6E7;"
+              onmouseover="this.style.borderColor='#F0A0C0'" onmouseout="this.style.borderColor='#FFD6E7'">
+              📅 Earliest first
+            </button>
+            <button onclick="setSortDirection('${key}','desc')" id="sort-${key}-desc"
+              style="padding:0.5rem 0.75rem;border-radius:0.75rem;font-size:0.875rem;font-weight:500;cursor:pointer;transition:all 0.2s;background:white;color:#999;border:2px solid #FFD6E7;"
+              onmouseover="this.style.borderColor='#F0A0C0'" onmouseout="this.style.borderColor='#FFD6E7'">
+              📅 Latest first
+            </button>
+          </div>
         </div>
         <div id="kanban-${key}" class="kanban-board"></div>
       </div>`;
@@ -705,6 +828,13 @@ function updateCalendarEvents() {
 function showTaskDetail(task) {
   const modal = document.getElementById('task-modal-overlay'); if (!modal) return;
   window.currentModalTask = task;
+  
+  // Reset editing state
+  isEditingTaskTitle = false;
+  document.getElementById('modal-task-title').classList.remove('hidden');
+  document.getElementById('modal-task-title-input').classList.add('hidden');
+  document.getElementById('modal-edit-buttons').classList.add('hidden');
+  
   setText('modal-task-title', task.title);
   const sEl = document.getElementById('modal-status-pill');
   const pEl = document.getElementById('modal-priority-pill');
@@ -714,6 +844,18 @@ function showTaskDetail(task) {
   if (pEl) pEl.innerHTML = priPill(task.priority);
   if (rEl) rEl.innerHTML = rolePill(task.role);
   if (dEl) dEl.textContent = task.due ? formatDate(task.due) : 'No due date';
+  
+  // Show/hide undo and done buttons based on task status
+  const undoBtn = document.getElementById('modal-undo-btn');
+  const doneBtn = document.getElementById('modal-done-btn');
+  if (task.done) {
+    if (undoBtn) undoBtn.classList.remove('hidden');
+    if (doneBtn) doneBtn.classList.add('hidden');
+  } else {
+    if (undoBtn) undoBtn.classList.add('hidden');
+    if (doneBtn) doneBtn.classList.remove('hidden');
+  }
+  
   modal.classList.add('active');
 }
 function closeTaskModal(e) {
@@ -724,6 +866,10 @@ function closeTaskModal(e) {
 function markTaskDone() {
   const task = window.currentModalTask;
   if (task) { task.done = true; task.status = 'Done'; saveData(); render(); closeTaskModal(); }
+}
+function markTaskUndone() {
+  const task = window.currentModalTask;
+  if (task) { task.done = false; task.status = 'Backlog'; saveData(); render(); closeTaskModal(); }
 }
 function deleteCurrentTask() {
   const task = window.currentModalTask;
@@ -761,3 +907,93 @@ function deleteCurrentTask() {
     }
   });
 })();
+
+// ─── Import/Export Data ────────────────────────────────────────────────────
+
+function exportData() {
+  const data = {
+    tasks, 
+    nextId, 
+    roles, 
+    roleColorMap,
+    note: document.getElementById('notepad')?.value || '',
+    tomatoCount, 
+    tomatoDate,
+    displayName: currentUser?.displayName || '',
+    exportedAt: new Date().toISOString(),
+  };
+  
+  const dataStr = JSON.stringify(data, null, 2);
+  const blob = new Blob([dataStr], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `moon-db-backup-${new Date().toISOString().split('T')[0]}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  
+  alert('✅ Data exported successfully!');
+}
+
+function triggerImport() {
+  document.getElementById('import-file').click();
+}
+
+function importData(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      const imported = JSON.parse(e.target?.result);
+      
+      if (!confirm(`Import ${imported.tasks?.length || 0} tasks? This will replace your current data.`)) {
+        event.target.value = '';
+        return;
+      }
+      
+      // Replace data
+      tasks = imported.tasks || [];
+      nextId = imported.nextId || 200;
+      roles = imported.roles || [...DEFAULT_ROLES];
+      roleColorMap = imported.roleColorMap || {};
+      tomatoCount = imported.tomatoCount || 0;
+      tomatoDate = imported.tomatoDate || todayISO();
+      
+      const noteEl = document.getElementById('notepad');
+      if (noteEl) noteEl.value = imported.note || '';
+      
+      // Reinit roles and filters
+      dateFilters = { all: 'all' };
+      roles.forEach(r => { 
+        dateFilters[r.toLowerCase().replace(/\s+/g, '_')] = 'all'; 
+      });
+      
+      // Save to Firestore
+      await saveToFirestore();
+      
+      // Re-render UI
+      renderNavTabs();
+      renderRoleTabs();
+      updateRoleSelect();
+      render();
+      updateTomatoDisplay();
+      if (calendar) updateCalendarEvents();
+      
+      alert('✅ Data imported successfully! Refreshing...');
+      closeSettingsModal();
+      setTimeout(() => location.reload(), 500);
+      
+    } catch (err) {
+      alert('❌ Import failed: Invalid JSON file or format error');
+      console.error('Import error:', err);
+    }
+  };
+  reader.readAsText(file);
+  
+  // Reset file input
+  event.target.value = '';
+}

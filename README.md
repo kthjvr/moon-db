@@ -1,109 +1,120 @@
 # 🌙 moon db
 
-A lightweight, local-first productivity workspace designed to help manage multiple roles, tasks, and focus sessions in one minimal interface.
+A Firebase-powered productivity workspace for managing tasks, roles, and focus in one unified system.
 
-moon db is built for freelancers and multi-role professionals who need structure without complexity.
-
----
-
-## Overview
-
-moon db centralizes task management, scheduling, and focus tools into a single local application. It is designed to reduce context switching and cognitive overload by organizing work into clear, role-based views.
-
-The application runs entirely in the browser using local storage, with no backend or external database dependencies.
+Designed for freelancers and multi-role professionals who need structured execution without cognitive overload.
 
 ---
 
-## Key Features
+## 🚀 Overview
 
-### 📌 Task Management
+moon db is a cloud-backed productivity system that centralizes task management, scheduling, and focus tools into a single interface.
 
-* Create, edit, delete, and duplicate tasks
-* Assign tasks to custom roles (e.g., QA, Marketing, Finance)
-* Set and modify due dates
-* Track task status (Backlog, In Progress, Blocked, Done)
-* Priority tagging (Low, Medium, High)
+It reduces context switching by organizing work into role-based workflows, enabling clearer execution across multiple responsibilities.
+
+The application is powered by Firebase for authentication and real-time data synchronization.
+
+---
+
+## ✨ Key Features
+
+### 📌 Task Management System
+- Create, edit, delete, and duplicate tasks
+- Assign tasks to custom roles (QA, Marketing, Finance, etc.)
+- Set and update due dates
+- Track task status (Backlog, In Progress, Blocked, Done)
+- Priority tagging (Low, Medium, High)
 
 ---
 
 ### 📊 Kanban Board
-
-* Visual workflow management by status
-* Supports structured task progression
-* Simplifies workload tracking at a glance
+- Visual task workflow by status
+- Supports structured execution flow
+- Improves clarity of task progression
 
 ---
 
 ### 📅 Calendar View
-
-* Tasks displayed as scheduled events
-* Due dates visualized in a calendar format
-* Helps with planning and workload distribution
+- Tasks displayed as scheduled events
+- Visual representation of deadlines
+- Supports workload planning across time
 
 ---
 
-### ⏱️ Pomodoro Focus Tool
-
-* Built-in Pomodoro timer for focus sessions
-* Simple controls: start, pause, reset
-* Visual indicator when a session is completed
+### ⏱️ Pomodoro Focus System
+- Built-in focus timer
+- Start, pause, and reset controls
+- Completion indicator for finished sessions
 
 ---
 
 ### 🧩 Role-Based Organization
-
-* Editable roles for flexible workflow structure
-* Dedicated views per role
-* Supports multi-client or multi-discipline workflows
+- Editable roles for flexible workflow structure
+- Dedicated views per role
+- Supports multi-project and multi-client workflows
 
 ---
 
 ### 📝 Notepad
-
-* Lightweight side note panel
-* Auto-saves locally
-* Designed for quick thoughts and reminders
-
----
-
-## Design Philosophy
-
-moon db follows a minimalist and calm design system inspired by soft UI principles. The interface is intentionally simple to support focus, reduce cognitive load, and maintain clarity across multiple workstreams.
+- Lightweight side note panel
+- Auto-saves user input
+- Designed for quick capture of thoughts and reminders
 
 ---
 
-## Tech Stack
+## 🧠 Design Philosophy
 
-* HTML
-* Tailwind CSS
-* TypeScript
-* Vite
-* Local Storage (client-side persistence)
+moon db follows a minimalist, soft UI approach focused on clarity and calm execution.
 
----
-
-## Data Storage
-
-moon db is fully local-first:
-
-* All data is stored in the browser
-* No external APIs or backend services required
-* Optional future migration to IndexedDB for scalability
+The interface is intentionally reduced in visual noise to:
+- Improve focus
+- Reduce cognitive load
+- Support fast decision-making
 
 ---
 
-## Development Approach
+## 🛠️ Tech Stack
 
-This project was developed as a personal productivity tool. The core architecture and features were designed and implemented by the author, with AI-assisted support used to help refine certain functions and improve development efficiency.
+- HTML
+- Tailwind CSS
+- TypeScript
+- Vite
+- Firebase Authentication
+- Cloud Firestore
 
 ---
 
-## License
+## 🔐 Data & Architecture
+
+moon db is powered by Firebase infrastructure:
+
+- **Authentication:** Google Sign-In via Firebase Auth
+- **Database:** Cloud Firestore (real-time sync)
+- **Security:** User-scoped data access via Firestore rules
+
+All user data is securely stored and synchronized in real time across sessions.
+
+---
+
+## ⚙️ Development Approach
+
+This project was developed as a personal productivity system.
+
+The architecture and feature design were created by the author, with AI-assisted development used to support implementation speed, debugging, and iterative refinement.
+
+---
+
+## 🎯 Purpose
+
+moon db is built to serve as a practical execution system for individuals managing multiple roles and responsibilities.
+
+It prioritizes:
+- Clarity over complexity
+- Execution over abstraction
+- Structure over feature overload
+
+---
+
+## 📄 License
 
 This project is licensed under the MIT License.
-
----
-
-## Purpose
-
-moon db was created to serve as a practical, lightweight system for managing multiple roles and responsibilities without relying on heavy productivity platforms. It prioritizes clarity, speed, and usability over feature complexity.
