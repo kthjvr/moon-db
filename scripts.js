@@ -33,8 +33,30 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db   = firebase.firestore();
 
-// Register chartjs-plugin-datalabels globally so bar labels render without hover
-Chart.register(ChartDataLabels);
+// Custom bar label plugin — draws values above each bar without external dependencies
+const barLabelPlugin = {
+  id: 'barLabels',
+  afterDatasetsDraw(chart) {
+    const { ctx } = chart;
+    chart.data.datasets.forEach((dataset, i) => {
+      const meta = chart.getDatasetMeta(i);
+      if (meta.hidden) return;
+      meta.data.forEach((bar, index) => {
+        const value = dataset.data[index];
+        if (!value || value === 0) return;
+        const label = i === 1 ? `${value}h` : String(value);
+        ctx.save();
+        ctx.font = "600 10px 'DM Sans', sans-serif";
+        ctx.fillStyle = i === 0 ? '#A03060' : '#6040A0';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(label, bar.x, bar.y - 3);
+        ctx.restore();
+      });
+    });
+  }
+};
+Chart.register(barLabelPlugin);
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 const POMO_DURATIONS   = { focus: 25 * 60, break: 5 * 60 };
@@ -949,19 +971,7 @@ function renderAnalyticsChart() {
           titleFont: { family: "'DM Sans', sans-serif", weight: '600' },
           bodyFont: { family: "'DM Sans', sans-serif", size: 12 },
         },
-        // FIX 2: Show data labels directly on bars via chartjs-plugin-datalabels
-        datalabels: {
-          anchor: 'end',
-          align: 'top',
-          offset: 4,
-          font: { family: "'DM Sans', sans-serif", size: 10, weight: '600' },
-          formatter: (value, context) => {
-            if (value === 0) return '';
-            // For focus hours dataset, append 'h'
-            return context.datasetIndex === 1 ? `${value}h` : value;
-          },
-          color: (context) => context.datasetIndex === 0 ? '#A03060' : '#6040A0',
-        },
+
       },
       scales: {
         x: {
