@@ -15,6 +15,7 @@
  * @property {Priority} priority
  * @property {string}   due
  * @property {boolean}  done
+ * @property {boolean}  [recurring]  - if true, shows in the daily recurring panel every day
  */
 
 // ─── Firebase Config ────────────────────────────────────────────────────────
@@ -32,11 +33,16 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db   = firebase.firestore();
 
+// Register chartjs-plugin-datalabels globally so bar labels render without hover
+Chart.register(ChartDataLabels);
+
 // ─── Constants ─────────────────────────────────────────────────────────────
 const POMO_DURATIONS   = { focus: 25 * 60, break: 5 * 60 };
 const CIRCUMFERENCE    = 2 * Math.PI * 40;
 const STATUSES         = ['In Progress', 'Backlog', 'Blocked', 'Done'];
-const DEFAULT_ROLES    = ['QA', 'Marketing', 'Finance'];
+
+// Generic placeholders so first-time users aren't confused
+const DEFAULT_ROLES    = ['Role 1', 'Role 2', 'Role 3'];
 const DEFAULT_COLOR_ID = 'rose';
 
 const ROLE_COLORS = [
@@ -49,25 +55,26 @@ const ROLE_COLORS = [
   { id: 'lilac',    bg: '#F0E0FF', border: '#D0A8F0', text: '#702090', eventBg: '#E8D0FF', eventBorder: '#C098E8' },
 ];
 
+// Generic task placeholders
 /** @type {Task[]} */
 const SAMPLE_TASKS = [
-  { id:1, title:'Write regression test cases for login flow',   role:'QA',        status:'In Progress', priority:'High',   due: todayISO(),    done: false },
-  { id:2, title:'Review API error handling coverage',           role:'QA',        status:'Backlog',     priority:'Medium', due: offsetDate(2), done: false },
-  { id:3, title:'Draft Q2 social media calendar',               role:'Marketing', status:'In Progress', priority:'High',   due: offsetDate(1), done: false },
-  { id:4, title:'Update email newsletter template',             role:'Marketing', status:'Blocked',     priority:'Medium', due: offsetDate(3), done: false },
-  { id:5, title:'Reconcile April expense report',               role:'Finance',   status:'In Progress', priority:'High',   due: todayISO(),    done: false },
-  { id:6, title:'Prepare invoice batch for freelance clients',  role:'Finance',   status:'Backlog',     priority:'Medium', due: offsetDate(5), done: false },
+  { id:1, title:'Task Title 1', role:'Role 1', status:'In Progress', priority:'High',   due: todayISO(),    done: false, recurring: false },
+  { id:2, title:'Task Title 2', role:'Role 1', status:'Backlog',     priority:'Medium', due: offsetDate(2), done: false, recurring: false },
+  { id:3, title:'Task Title 3', role:'Role 2', status:'In Progress', priority:'High',   due: offsetDate(1), done: false, recurring: false },
+  { id:4, title:'Task Title 4', role:'Role 2', status:'Blocked',     priority:'Medium', due: offsetDate(3), done: false, recurring: false },
+  { id:5, title:'Task Title 5', role:'Role 3', status:'In Progress', priority:'High',   due: todayISO(),    done: false, recurring: false },
+  { id:6, title:'Task Title 6', role:'Role 3', status:'Backlog',     priority:'Medium', due: offsetDate(5), done: false, recurring: false },
 ];
 
 // ─── State ──────────────────────────────────────────────────────────────────
 /** @type {Task[]} */                let tasks        = [];
-let nextId       = 200;
-let activeTab    = 'overview';
+let nextId        = 200;
+let activeTab     = 'overview';
 /** @type {string[]} */              let roles        = [...DEFAULT_ROLES];
 /** @type {Record<string,string>} */ let roleColorMap = {};
-let dateFilters  = {};
-let draggedTask  = null;
-let calendar     = null;
+let dateFilters   = {};
+let draggedTask   = null;
+let calendar      = null;
 /** @type {Object|null} */           let currentUser  = null;
 /** @type {Record<string,string>} */ let sortDirections = {};
 /** @type {Chart|null} */            let analyticsChart = null;
@@ -79,9 +86,11 @@ let pomoSeconds = POMO_DURATIONS.focus;
 /** @type {number|null} */ let pomoInterval = null;
 let tomatoCount = 0;
 let tomatoDate  = todayISO();
-let quickTitle  = '';
+// Track daily pomo history so analytics can show past focus hours
+/** @type {Record<string,number>} — date string → pomodoro count */
+let pomoHistory = {};
 
-// Editing state
+let quickTitle = '';
 let isEditingTaskTitle = false;
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -158,78 +167,55 @@ function updateUserDisplay(user) {
   }
 }
 
-// ─── Display name editing ────────────────────────────────────────────────────
 function editDisplayName() {
   const newName = prompt('Edit your display name:', currentUser.displayName || currentUser.email || 'User');
   if (newName === null || newName.trim() === '') return;
-  
   currentUser.updateProfile({ displayName: newName.trim() })
     .then(() => {
       updateUserDisplay(currentUser);
-      // Save to Firestore
       userDoc().update({ displayName: newName.trim() }).catch(() => {});
     })
-    .catch(err => {
-      console.error('Error updating display name:', err);
-      alert('Failed to update display name.');
-    });
+    .catch(err => { console.error('Error updating display name:', err); alert('Failed to update display name.'); });
 }
 
 // ─── Task title editing ──────────────────────────────────────────────────────
 function startEditTaskTitle() {
   if (isEditingTaskTitle) return;
   isEditingTaskTitle = true;
-  
-  const titleEl = document.getElementById('modal-task-title');
-  const inputEl = document.getElementById('modal-task-title-input');
+  const titleEl   = document.getElementById('modal-task-title');
+  const inputEl   = document.getElementById('modal-task-title-input');
   const buttonsEl = document.getElementById('modal-edit-buttons');
-  
   if (titleEl && inputEl && buttonsEl) {
     inputEl.value = titleEl.textContent;
     titleEl.classList.add('hidden');
     inputEl.classList.remove('hidden');
     buttonsEl.classList.remove('hidden');
-    inputEl.focus();
-    inputEl.select();
+    inputEl.focus(); inputEl.select();
   }
 }
 
 function saveTaskTitle() {
-  const inputEl = document.getElementById('modal-task-title-input');
+  const inputEl  = document.getElementById('modal-task-title-input');
   const newTitle = inputEl.value.trim();
-  
-  if (!newTitle) {
-    alert('Task title cannot be empty.');
-    return;
-  }
-  
+  if (!newTitle) { alert('Task title cannot be empty.'); return; }
   const task = window.currentModalTask;
   if (task) {
     task.title = newTitle;
     saveData();
-    
-    // Update modal display
     const titleEl = document.getElementById('modal-task-title');
     titleEl.textContent = newTitle;
-    
-    // Hide input and show title
     titleEl.classList.remove('hidden');
     inputEl.classList.add('hidden');
     document.getElementById('modal-edit-buttons').classList.add('hidden');
     isEditingTaskTitle = false;
-    
     render();
   }
 }
 
 function cancelEditTaskTitle() {
-  const titleEl = document.getElementById('modal-task-title');
-  const inputEl = document.getElementById('modal-task-title-input');
-  const buttonsEl = document.getElementById('modal-edit-buttons');
-  
-  titleEl.classList.remove('hidden');
-  inputEl.classList.add('hidden');
-  buttonsEl.classList.add('hidden');
+  document.getElementById('modal-task-title').classList.remove('hidden');
+  document.getElementById('modal-task-title-input').classList.add('hidden');
+  document.getElementById('modal-edit-buttons').classList.add('hidden');
   isEditingTaskTitle = false;
 }
 
@@ -254,9 +240,7 @@ function statusPill(s) {
 }
 
 // ─── Firestore persistence ────────────────────────────────────────────────────
-function userDoc() {
-  return db.collection('users').doc(currentUser.uid);
-}
+function userDoc() { return db.collection('users').doc(currentUser.uid); }
 
 async function loadFromFirestore() {
   if (!currentUser) return;
@@ -271,28 +255,21 @@ async function loadFromFirestore() {
       roleColorMap = data.roleColorMap || {};
       tomatoCount  = data.tomatoDate === todayISO() ? (data.tomatoCount || 0) : 0;
       tomatoDate   = todayISO();
+      // Load pomo history
+      pomoHistory  = data.pomoHistory  || {};
       const noteEl = document.getElementById('notepad');
       if (noteEl) noteEl.value = data.note || '';
     } else {
-      // First sign-in — seed with sample data
       tasks  = [...SAMPLE_TASKS];
       nextId = 200;
       roles  = [...DEFAULT_ROLES];
       await saveToFirestore();
     }
-  } catch (err) {
-    console.error('Error loading from Firestore:', err);
-  }
+  } catch (err) { console.error('Error loading from Firestore:', err); }
 
-  // Assign default colors for any role missing one
-  roles.forEach((r, i) => {
-    if (!roleColorMap[r]) roleColorMap[r] = ROLE_COLORS[i % ROLE_COLORS.length].id;
-  });
-
-  // Init date filters
+  roles.forEach((r, i) => { if (!roleColorMap[r]) roleColorMap[r] = ROLE_COLORS[i % ROLE_COLORS.length].id; });
   dateFilters = { all: 'all' };
   roles.forEach(r => { dateFilters[r.toLowerCase().replace(/\s+/g, '_')] = 'all'; });
-
   showLoadingState(false);
 }
 
@@ -302,13 +279,12 @@ async function saveToFirestore() {
   try {
     await userDoc().set({
       tasks, nextId, roles, roleColorMap, tomatoCount, tomatoDate,
-      note:      noteEl ? noteEl.value : '',
+      pomoHistory,  // persist history
+      note:        noteEl ? noteEl.value : '',
       displayName: currentUser.displayName || '',
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedAt:   firebase.firestore.FieldValue.serverTimestamp(),
     });
-  } catch (err) {
-    console.error('Error saving to Firestore:', err);
-  }
+  } catch (err) { console.error('Error saving to Firestore:', err); }
 }
 
 function saveData() {
@@ -319,16 +295,17 @@ function saveData() {
 async function saveNote() {
   if (!currentUser) return;
   const el = /** @type {HTMLTextAreaElement} */ (document.getElementById('notepad'));
-  try {
-    await userDoc().update({ note: el.value, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
-  } catch (_) { await saveToFirestore(); }
+  try { await userDoc().update({ note: el.value, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }); }
+  catch (_) { await saveToFirestore(); }
   const saved = document.getElementById('note-saved');
   if (saved) { saved.textContent = '✓ saved'; setTimeout(() => { saved.textContent = ''; }, 1500); }
 }
 
 function saveTomatoCount() {
   if (!currentUser) return;
-  userDoc().update({ tomatoCount, tomatoDate }).catch(() => saveToFirestore());
+  // Record this date's count in history every time it changes
+  pomoHistory[tomatoDate] = tomatoCount;
+  userDoc().update({ tomatoCount, tomatoDate, pomoHistory }).catch(() => saveToFirestore());
 }
 
 function showLoadingState(loading) {
@@ -344,30 +321,43 @@ function renderMetrics() {
   setText('m-blocked',    String(active.filter(t => t.status === 'Blocked').length));
 }
 
+//  High priority tasks only (not filtered by due date)
 function renderToday() {
   const el = document.getElementById('today-list'); if (!el) return;
   const top = tasks
-    .filter(t => !t.done && (t.priority === 'High' || t.due === todayISO()))
-    .sort((a,b) => ['High','Medium','Low'].indexOf(a.priority) - ['High','Medium','Low'].indexOf(b.priority))
+    .filter(t => !t.done && t.priority === 'High')
+    .sort((a, b) => {
+      // Sort by due date ascending, tasks with no due date go last
+      const aDate = a.due ? new Date(a.due) : new Date('9999-12-31');
+      const bDate = b.due ? new Date(b.due) : new Date('9999-12-31');
+      return aDate - bDate;
+    })
     .slice(0, 5);
   el.innerHTML = top.length
     ? top.map(t => taskRowHTML(t, false)).join('')
-    : `<p class="text-sm text-pink-200 text-center py-4">All clear — nothing urgent today!</p>`;
+    : `<p class="text-sm text-pink-200 text-center py-4">No high priority tasks right now!</p>`;
 }
 
+// Daily recurring tasks
 function renderUrgent() {
   const el = document.getElementById('urgent-list'); if (!el) return;
-  const urg = tasks.filter(isUrgent).slice(0, 4);
-  el.innerHTML = urg.length
-    ? urg.map(t => `
-        <div class="flex items-start gap-2 p-2 rounded-xl bg-pink-50 border border-pink-100 mb-2 last:mb-0">
-          <span class="mt-1 w-1.5 h-1.5 rounded-full bg-pink-400 flex-shrink-0"></span>
-          <div>
-            <p class="text-xs font-medium text-pink-700 leading-snug">${t.title}</p>
-            <p class="text-[10px] text-pink-400 mt-0.5">${t.role} · ${t.due ? formatDate(t.due) : t.priority}</p>
-          </div>
-        </div>`).join('')
-    : `<p class="text-xs text-pink-200 text-center py-2">Nothing urgent!</p>`;
+  const recurring = tasks.filter(t => t.recurring && !t.done);
+  if (!recurring.length) {
+    el.innerHTML = `<p class="text-xs text-pink-200 text-center py-2">No recurring tasks yet.<br><span style="font-size:0.65rem;color:#DDB0C0;">Add tasks and mark them as recurring!</span></p>`;
+    return;
+  }
+  el.innerHTML = recurring.map(t => `
+    <div class="flex items-start gap-2 p-2 rounded-xl bg-pink-50 border border-pink-100 mb-2 last:mb-0">
+      <span style="font-size:1rem;flex-shrink:0;margin-top:1px;">🔁</span>
+      <div class="flex-1 min-w-0">
+        <p class="text-xs font-medium text-pink-700 leading-snug">${t.title}</p>
+        <p class="text-[10px] text-pink-400 mt-0.5">${t.role} · recurring daily</p>
+      </div>
+      <button onclick="toggleDone(${t.id})"
+        class="flex-shrink-0 w-4 h-4 rounded-full border-2 flex items-center justify-center transition mt-0.5 ${t.done?'bg-lavender-200 border-lavender-300':'border-pink-200 hover:border-pink-400'}">
+        ${t.done?'<span class="w-1.5 h-1.5 rounded-full bg-lavender-500 block"></span>':''}
+      </button>
+    </div>`).join('');
 }
 
 function renderRoleSnapshot() {
@@ -390,18 +380,13 @@ function renderRoleSnapshot() {
 function renderKanban(role, elId, dateFilter) {
   const el = document.getElementById(elId); if (!el) return;
   let filtered = tasks.filter(t => (role === null || t.role === role) && matchesDateFilter(t, dateFilter));
-  
-  // Get sort direction for this tab (default to asc)
   const tabKey = role === null ? 'all' : role.toLowerCase().replace(/\s+/g, '_');
   const sortDir = sortDirections[tabKey] || 'asc';
-  
-  // Sort by due date
   filtered = filtered.sort((a, b) => {
     const aDate = a.due ? new Date(a.due) : new Date('9999-12-31');
     const bDate = b.due ? new Date(b.due) : new Date('9999-12-31');
     return sortDir === 'asc' ? aDate - bDate : bDate - aDate;
   });
-  
   let html = '';
   for (const status of STATUSES) {
     const statusTasks = filtered.filter(t => t.status === status);
@@ -422,6 +407,10 @@ function renderKanban(role, elId, dateFilter) {
 
 function taskCardHTML(t, showRole) {
   const c = getRoleColor(t.role);
+  // Show recurring badge on card
+  const recurringBadge = t.recurring
+    ? `<span style="font-size:10px;background:#FFF0F5;color:#C05070;border:1px solid #FFD6E7;border-radius:99px;padding:1px 6px;font-weight:500;">🔁 Daily</span>`
+    : '';
   return `
     <div class="task-card" draggable="true" id="card-${t.id}" style="border-left:3px solid ${c.border};"
       ondragstart="handleDragStart(event,${t.id})" ondragend="handleDragEnd(event)">
@@ -429,12 +418,14 @@ function taskCardHTML(t, showRole) {
       <div class="task-card-meta">
         ${showRole ? rolePill(t.role) : ''}
         ${statusPill(t.status)}${priPill(t.priority)}
+        ${recurringBadge}
       </div>
       <div class="task-card-bottom">
         <input type="date" class="task-card-due" value="${t.due||''}"
           style="padding:0.25rem 0.5rem;border:1px solid #FFD6E7;border-radius:0.375rem;font-size:0.75rem;cursor:pointer;"
           onchange="updateTaskDue(${t.id},this.value)" />
-        <div style="display:flex;gap:0.25rem;">
+        <div style="display:flex;gap:0.25rem;align-items:center;">
+          <button class="task-card-delete" onclick="toggleRecurring(${t.id})" title="${t.recurring?'Remove recurring':'Mark as recurring'}" style="opacity:0.6;font-size:0.85rem;">${t.recurring?'🔁':'↺'}</button>
           <button class="task-card-delete" onclick="duplicateTask(${t.id})" title="Duplicate" style="opacity:0.6;">📋</button>
           <button class="task-card-delete" onclick="deleteTask(${t.id})">×</button>
         </div>
@@ -451,9 +442,10 @@ function taskRowHTML(t, showDelete) {
         ${t.done?'<span class="w-1.5 h-1.5 rounded-full bg-lavender-500 block"></span>':''}
       </button>
       <div class="flex-1 min-w-0">
-        <p class="text-sm text-gray-700 leading-snug ${t.done?'line-through text-gray-300':''}" onclick="showTaskDetail(tasks.find(x => x.id === ${t.id}))" style="cursor:pointer;hover:text-pink-600;">${t.title}</p>
+        <p class="text-sm text-gray-700 leading-snug ${t.done?'line-through text-gray-300':''}" onclick="showTaskDetail(tasks.find(x => x.id === ${t.id}))" style="cursor:pointer;">${t.title}</p>
         <div class="flex flex-wrap items-center gap-1.5 mt-1.5">
           ${rolePill(t.role)}${statusPill(t.status)}${priPill(t.priority)}
+          ${t.recurring ? `<span style="font-size:10px;color:#C05070;">🔁</span>` : ''}
           ${t.due?`<span class="text-[11px] font-mono ${overdue&&!t.done?'text-red-400 font-semibold':'text-gray-300'}">${formatDate(t.due)}</span>`:''}
         </div>
       </div>
@@ -504,13 +496,20 @@ function toggleDone(id) {
 function deleteTask(id) { tasks = tasks.filter(x => x.id !== id); saveData(); render(); }
 function duplicateTask(id) {
   const orig = tasks.find(x => x.id === id); if (!orig) return;
-  tasks.unshift({ id: nextId++, title: orig.title, role: orig.role, status: 'Backlog', priority: orig.priority, due: orig.due, done: false });
+  tasks.unshift({ id: nextId++, title: orig.title, role: orig.role, status: 'Backlog', priority: orig.priority, due: orig.due, done: false, recurring: orig.recurring || false });
   saveData(); render();
 }
 function updateTaskDue(id, newDue) {
   const t = tasks.find(x => x.id === id);
   if (t) { t.due = newDue; saveData(); render(); }
 }
+
+// FIX 4: Toggle recurring flag on a task
+function toggleRecurring(id) {
+  const t = tasks.find(x => x.id === id);
+  if (t) { t.recurring = !t.recurring; saveData(); render(); }
+}
+
 function quickAdd() {
   const input = /** @type {HTMLInputElement} */ (document.getElementById('quick-input'));
   quickTitle = input.value.trim(); if (!quickTitle) return;
@@ -528,11 +527,12 @@ function cancelQuick() {
   quickTitle = '';
 }
 function saveQuickTask() {
-  const role = document.getElementById('qf-role').value;
-  const priority = document.getElementById('qf-priority').value;
-  const status   = document.getElementById('qf-status').value;
-  const due      = /** @type {HTMLInputElement} */ (document.getElementById('qf-due')).value;
-  tasks.unshift({ id: nextId++, title: quickTitle, role, status, priority, due, done: false });
+  const role      = document.getElementById('qf-role').value;
+  const priority  = document.getElementById('qf-priority').value;
+  const status    = document.getElementById('qf-status').value;
+  const due       = /** @type {HTMLInputElement} */ (document.getElementById('qf-due')).value;
+  const recurring = /** @type {HTMLInputElement} */ (document.getElementById('qf-recurring')).checked;
+  tasks.unshift({ id: nextId++, title: quickTitle, role, status, priority, due, done: false, recurring });
   saveData(); render(); cancelQuick();
 }
 function setDateFilter(tab, filter) {
@@ -542,22 +542,17 @@ function setDateFilter(tab, filter) {
   });
   render();
 }
-
 function setSortDirection(tab, direction) {
   sortDirections[tab] = direction;
-  
-  // Update button styles
-  const ascBtn = document.getElementById(`sort-${tab}-asc`);
+  const ascBtn  = document.getElementById(`sort-${tab}-asc`);
   const descBtn = document.getElementById(`sort-${tab}-desc`);
-  
   if (direction === 'asc') {
-    if (ascBtn) { ascBtn.style.background='#E6D6FF'; ascBtn.style.color='#6040A0'; ascBtn.style.borderColor='#A888E0'; }
+    if (ascBtn)  { ascBtn.style.background='#E6D6FF'; ascBtn.style.color='#6040A0'; ascBtn.style.borderColor='#A888E0'; }
     if (descBtn) { descBtn.style.background='white'; descBtn.style.color='#999'; descBtn.style.borderColor='#FFD6E7'; }
   } else {
     if (descBtn) { descBtn.style.background='#E6D6FF'; descBtn.style.color='#6040A0'; descBtn.style.borderColor='#A888E0'; }
-    if (ascBtn) { ascBtn.style.background='white'; ascBtn.style.color='#999'; ascBtn.style.borderColor='#FFD6E7'; }
+    if (ascBtn)  { ascBtn.style.background='white'; ascBtn.style.color='#999'; ascBtn.style.borderColor='#FFD6E7'; }
   }
-  
   render();
 }
 
@@ -677,13 +672,11 @@ function renderRoleTabs() {
           <button class="date-filter-badge"        onclick="setDateFilter('${key}','month')" data-filter="month">This month</button>
           <div style="margin-left:auto;display:flex;gap:0.5rem;">
             <button onclick="setSortDirection('${key}','asc')" id="sort-${key}-asc"
-              style="padding:0.5rem 0.75rem;border-radius:0.75rem;font-size:0.875rem;font-weight:500;cursor:pointer;transition:all 0.2s;background:white;color:#999;border:2px solid #FFD6E7;"
-              onmouseover="this.style.borderColor='#F0A0C0'" onmouseout="this.style.borderColor='#FFD6E7'">
+              style="padding:0.5rem 0.75rem;border-radius:0.75rem;font-size:0.875rem;font-weight:500;cursor:pointer;transition:all 0.2s;background:white;color:#999;border:2px solid #FFD6E7;">
               📅 Earliest first
             </button>
             <button onclick="setSortDirection('${key}','desc')" id="sort-${key}-desc"
-              style="padding:0.5rem 0.75rem;border-radius:0.75rem;font-size:0.875rem;font-weight:500;cursor:pointer;transition:all 0.2s;background:white;color:#999;border:2px solid #FFD6E7;"
-              onmouseover="this.style.borderColor='#F0A0C0'" onmouseout="this.style.borderColor='#FFD6E7'">
+              style="padding:0.5rem 0.75rem;border-radius:0.75rem;font-size:0.875rem;font-weight:500;cursor:pointer;transition:all 0.2s;background:white;color:#999;border:2px solid #FFD6E7;">
               📅 Latest first
             </button>
           </div>
@@ -830,13 +823,10 @@ function updateCalendarEvents() {
 function showTaskDetail(task) {
   const modal = document.getElementById('task-modal-overlay'); if (!modal) return;
   window.currentModalTask = task;
-  
-  // Reset editing state
   isEditingTaskTitle = false;
   document.getElementById('modal-task-title').classList.remove('hidden');
   document.getElementById('modal-task-title-input').classList.add('hidden');
   document.getElementById('modal-edit-buttons').classList.add('hidden');
-  
   setText('modal-task-title', task.title);
   const sEl = document.getElementById('modal-status-pill');
   const pEl = document.getElementById('modal-priority-pill');
@@ -846,8 +836,6 @@ function showTaskDetail(task) {
   if (pEl) pEl.innerHTML = priPill(task.priority);
   if (rEl) rEl.innerHTML = rolePill(task.role);
   if (dEl) dEl.textContent = task.due ? formatDate(task.due) : 'No due date';
-  
-  // Show/hide undo and done buttons based on task status
   const undoBtn = document.getElementById('modal-undo-btn');
   const doneBtn = document.getElementById('modal-done-btn');
   if (task.done) {
@@ -857,7 +845,6 @@ function showTaskDetail(task) {
     if (undoBtn) undoBtn.classList.add('hidden');
     if (doneBtn) doneBtn.classList.remove('hidden');
   }
-  
   modal.classList.add('active');
 }
 function closeTaskModal(e) {
@@ -882,54 +869,40 @@ function deleteCurrentTask() {
 function getAnalyticsData(filter) {
   const today = new Date(todayISO());
   let startDate = new Date(today);
-  let endDate = new Date(today);
-  endDate.setHours(23, 59, 59, 999);
-  
-  if (filter === 'week') {
-    startDate.setDate(today.getDate() - 6); // Last 7 days including today
-  } else if (filter === 'month') {
-    startDate.setDate(today.getDate() - 29); // Last 30 days including today
+
+  if (filter === 'week')  startDate.setDate(today.getDate() - 6);   // last 7 days
+  else if (filter === 'month') startDate.setDate(today.getDate() - 29); // last 30 days
+  // 'today' → startDate === today (single bar)
+
+  const labels             = [];
+  const completedTasksData = [];
+  const focusHoursData     = [];
+
+  const cur = new Date(startDate);
+  while (cur <= today) {
+    const dateStr = cur.toISOString().split('T')[0];
+    labels.push(new Date(cur).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+
+    // Completed tasks whose due date matches this day
+    completedTasksData.push(tasks.filter(t => t.done && t.due === dateStr).length);
+
+    // Use pomoHistory for past days, live tomatoCount for today
+    const dayPomos   = dateStr === tomatoDate ? tomatoCount : (pomoHistory[dateStr] || 0);
+    const focusHours = Math.round((dayPomos * 25 / 60) * 10) / 10;
+    focusHoursData.push(focusHours);
+
+    cur.setDate(cur.getDate() + 1);
   }
-  
-  // Prepare data points
-  let dataPoints = [];
-  let labels = [];
-  let completedTasksData = [];
-  let focusHoursData = [];
-  
-  const currentDate = new Date(startDate);
-  while (currentDate <= today) {
-    const dateStr = currentDate.toISOString().split('T')[0];
-    labels.push(new Date(currentDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
-    
-    // Count completed tasks for this date
-    const completedCount = tasks.filter(t => t.done && t.due === dateStr).length;
-    completedTasksData.push(completedCount);
-    
-    // Calculate focus hours - assuming each pomodoro is 25 minutes (0.42 hours)
-    // We'll estimate based on tomatoCount for today, or 0 for past days
-    let focusHours = 0;
-    if (dateStr === tomatoDate) {
-      focusHours = (tomatoCount * 25) / 60; // Convert minutes to hours
-    }
-    focusHoursData.push(Math.round(focusHours * 10) / 10); // Round to 1 decimal
-    
-    currentDate.setDate(currentDate.getDate() + 1);
-  }
-  
+
   return { labels, completedTasksData, focusHoursData };
 }
 
 function renderAnalyticsChart() {
   const data = getAnalyticsData(analyticsFilter);
-  const ctx = document.getElementById('analyticsChart');
+  const ctx  = document.getElementById('analyticsChart');
   if (!ctx) return;
-  
-  // Destroy existing chart if it exists
-  if (analyticsChart) {
-    analyticsChart.destroy();
-  }
-  
+  if (analyticsChart) { analyticsChart.destroy(); analyticsChart = null; }
+
   analyticsChart = new Chart(ctx, {
     type: 'bar',
     data: {
@@ -958,20 +931,12 @@ function renderAnalyticsChart() {
     options: {
       responsive: true,
       maintainAspectRatio: true,
-      interaction: {
-        mode: 'index',
-        intersect: false,
-      },
+      interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: {
           display: true,
           position: 'top',
-          labels: {
-            font: { family: "'DM Sans', sans-serif", size: 12, weight: '500' },
-            color: '#C05070',
-            padding: 15,
-            usePointStyle: true,
-          },
+          labels: { font: { family: "'DM Sans', sans-serif", size: 12, weight: '500' }, color: '#C05070', padding: 15, usePointStyle: true },
         },
         tooltip: {
           backgroundColor: '#802840',
@@ -983,13 +948,23 @@ function renderAnalyticsChart() {
           titleFont: { family: "'DM Sans', sans-serif", weight: '600' },
           bodyFont: { family: "'DM Sans', sans-serif", size: 12 },
         },
+        // Show data labels directly on bars via chartjs-plugin-datalabels
+        datalabels: {
+          anchor: 'end',
+          align: 'end',
+          offset: 2,
+          font: { family: "'DM Sans', sans-serif", size: 10, weight: '600' },
+          formatter: (value, context) => {
+            if (value === 0) return '';
+            // For focus hours dataset, append 'h'
+            return context.datasetIndex === 1 ? `${value}h` : value;
+          },
+          color: (context) => context.datasetIndex === 0 ? '#A03060' : '#6040A0',
+        },
       },
       scales: {
         x: {
-          ticks: {
-            font: { family: "'DM Sans', sans-serif", size: 11 },
-            color: '#C08090',
-          },
+          ticks: { font: { family: "'DM Sans', sans-serif", size: 11 }, color: '#C08090' },
           grid: { display: false },
         },
         y: {
@@ -997,7 +972,7 @@ function renderAnalyticsChart() {
           display: true,
           position: 'left',
           title: { display: true, text: 'Completed Tasks', font: { family: "'DM Sans', sans-serif", weight: '500', size: 11 }, color: '#C05070' },
-          ticks: { font: { family: "'DM Sans', sans-serif", size: 11 }, color: '#C08090' },
+          ticks: { font: { family: "'DM Sans', sans-serif", size: 11 }, color: '#C08090', precision: 0 },
           grid: { color: 'rgba(240, 160, 192, 0.1)' },
         },
         y1: {
@@ -1015,16 +990,12 @@ function renderAnalyticsChart() {
 
 function setAnalyticsFilter(filter) {
   analyticsFilter = filter;
-  
-  // Update button styles
   document.querySelectorAll('.analytics-filter-btn').forEach(btn => {
     btn.classList.remove('active', 'bg-pink-200', 'text-pink-700');
     btn.classList.add('bg-white', 'text-gray-500', 'border', 'border-pink-100');
   });
-  
-  document.getElementById(`analytics-${filter}`).classList.add('active', 'bg-pink-200', 'text-pink-700');
-  document.getElementById(`analytics-${filter}`).classList.remove('bg-white', 'text-gray-500', 'border', 'border-pink-100');
-  
+  const activeBtn = document.getElementById(`analytics-${filter}`);
+  if (activeBtn) { activeBtn.classList.add('active', 'bg-pink-200', 'text-pink-700'); activeBtn.classList.remove('bg-white', 'text-gray-500', 'border', 'border-pink-100'); }
   renderAnalyticsChart();
 }
 
@@ -1061,92 +1032,52 @@ function setAnalyticsFilter(filter) {
   });
 })();
 
-// ─── Import/Export Data ────────────────────────────────────────────────────
-
+// ─── Import/Export ────────────────────────────────────────────────────────────
 function exportData() {
   const data = {
-    tasks, 
-    nextId, 
-    roles, 
-    roleColorMap,
+    tasks, nextId, roles, roleColorMap, pomoHistory,
     note: document.getElementById('notepad')?.value || '',
-    tomatoCount, 
-    tomatoDate,
+    tomatoCount, tomatoDate,
     displayName: currentUser?.displayName || '',
     exportedAt: new Date().toISOString(),
   };
-  
-  const dataStr = JSON.stringify(data, null, 2);
-  const blob = new Blob([dataStr], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `moon-db-backup-${new Date().toISOString().split('T')[0]}.json`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = `moon-db-backup-${todayISO()}.json`;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
   alert('✅ Data exported successfully!');
 }
 
-function triggerImport() {
-  document.getElementById('import-file').click();
-}
+function triggerImport() { document.getElementById('import-file').click(); }
 
-function importData(event) {
-  const file = event.target.files?.[0];
-  if (!file) return;
-  
+async function importData(event) {
+  const file = event.target.files?.[0]; if (!file) return;
   const reader = new FileReader();
   reader.onload = async (e) => {
     try {
       const imported = JSON.parse(e.target?.result);
-      
-      if (!confirm(`Import ${imported.tasks?.length || 0} tasks? This will replace your current data.`)) {
-        event.target.value = '';
-        return;
-      }
-      
-      // Replace data
-      tasks = imported.tasks || [];
-      nextId = imported.nextId || 200;
-      roles = imported.roles || [...DEFAULT_ROLES];
+      if (!confirm(`Import ${imported.tasks?.length || 0} tasks? This will replace your current data.`)) { event.target.value = ''; return; }
+      tasks        = imported.tasks        || [];
+      nextId       = imported.nextId       || 200;
+      roles        = imported.roles        || [...DEFAULT_ROLES];
       roleColorMap = imported.roleColorMap || {};
-      tomatoCount = imported.tomatoCount || 0;
-      tomatoDate = imported.tomatoDate || todayISO();
-      
+      tomatoCount  = imported.tomatoCount  || 0;
+      tomatoDate   = imported.tomatoDate   || todayISO();
+      pomoHistory  = imported.pomoHistory  || {};
       const noteEl = document.getElementById('notepad');
       if (noteEl) noteEl.value = imported.note || '';
-      
-      // Reinit roles and filters
       dateFilters = { all: 'all' };
-      roles.forEach(r => { 
-        dateFilters[r.toLowerCase().replace(/\s+/g, '_')] = 'all'; 
-      });
-      
-      // Save to Firestore
+      roles.forEach(r => { dateFilters[r.toLowerCase().replace(/\s+/g, '_')] = 'all'; });
       await saveToFirestore();
-      
-      // Re-render UI
-      renderNavTabs();
-      renderRoleTabs();
-      updateRoleSelect();
-      render();
-      updateTomatoDisplay();
+      renderNavTabs(); renderRoleTabs(); updateRoleSelect(); render(); updateTomatoDisplay();
       if (calendar) updateCalendarEvents();
-      
-      alert('✅ Data imported successfully! Refreshing...');
+      alert('✅ Data imported successfully!');
       closeSettingsModal();
       setTimeout(() => location.reload(), 500);
-      
-    } catch (err) {
-      alert('❌ Import failed: Invalid JSON file or format error');
-      console.error('Import error:', err);
-    }
+    } catch (err) { alert('❌ Import failed: Invalid JSON file'); console.error('Import error:', err); }
   };
   reader.readAsText(file);
-  
-  // Reset file input
   event.target.value = '';
 }
