@@ -56,7 +56,7 @@ const barLabelPlugin = {
     });
   }
 };
-Chart.register(barLabelPlugin);
+// barLabelPlugin passed directly into chart instance (see renderAnalyticsChart)
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 const POMO_DURATIONS   = { focus: 25 * 60, break: 5 * 60 };
@@ -927,6 +927,7 @@ function renderAnalyticsChart() {
 
   analyticsChart = new Chart(ctx, {
     type: 'bar',
+    plugins: [barLabelPlugin],
     data: {
       labels: data.labels,
       datasets: [
