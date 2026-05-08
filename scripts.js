@@ -292,6 +292,19 @@ async function loadFromFirestore() {
   roles.forEach((r, i) => { if (!roleColorMap[r]) roleColorMap[r] = ROLE_COLORS[i % ROLE_COLORS.length].id; });
   dateFilters = { all: 'all' };
   roles.forEach(r => { dateFilters[r.toLowerCase().replace(/\s+/g, '_')] = 'all'; });
+
+  // Reset recurring tasks that were completed on a previous day
+  let recurringReset = false;
+  tasks.forEach(t => {
+    if (t.recurring && t.done && t.doneDate && t.doneDate !== todayISO()) {
+      t.done     = false;
+      t.status   = 'In Progress';
+      t.doneDate = '';
+      recurringReset = true;
+    }
+  });
+  if (recurringReset) saveToFirestore();
+
   showLoadingState(false);
 }
 
@@ -512,7 +525,12 @@ function handleDrop(e) {
 // ─── Actions ──────────────────────────────────────────────────────────────────
 function toggleDone(id) {
   const t = tasks.find(x => x.id === id);
-  if (t) { t.done = !t.done; t.status = t.done ? 'Done' : 'Backlog'; }
+  if (t) {
+    t.done   = !t.done;
+    t.status = t.done ? 'Done' : (t.recurring ? 'In Progress' : 'Backlog');
+    // Track the date it was completed so we can reset it tomorrow
+    t.doneDate = t.done ? todayISO() : '';
+  }
   saveData(); render();
 }
 function deleteTask(id) { tasks = tasks.filter(x => x.id !== id); saveData(); render(); }
@@ -775,9 +793,11 @@ function getPriorityEventClass(priority) {
   return { High:'event-high', Medium:'event-medium', Low:'event-low' }[priority] || '';
 }
 function getCalendarEvents() {
-  return tasks.filter(t => t.due).map(t => {
+  const events = [];
+
+  tasks.filter(t => t.due).forEach(t => {
     const roleOrder = roles.indexOf(t.role);
-    return {
+    const baseEvent = {
       id: `task-${t.id}`, title: t.title, start: t.due, end: t.due,
       order: roleOrder === -1 ? 999 : roleOrder,
       extendedProps: {
@@ -787,8 +807,28 @@ function getCalendarEvents() {
       classNames: [getPriorityEventClass(t.priority)],
       display: 'block',
     };
+    events.push(baseEvent);
+
+    // For recurring tasks, also show them on the next 30 days
+    if (t.recurring) {
+      for (let d = 1; d <= 30; d++) {
+        const futureDate = offsetDate(d);
+        if (futureDate === t.due) continue; // skip if same as original due date
+        events.push({
+          ...baseEvent,
+          id: `task-${t.id}-r${d}`,
+          start: futureDate,
+          end:   futureDate,
+          extendedProps: { ...baseEvent.extendedProps, done: false }, // future = always not done
+        });
+      }
+    }
   });
+
+  return events;
 }
+
+
 function initCalendar() {
   const calendarEl = document.getElementById('calendar'); if (!calendarEl) return;
   calendar = new FullCalendar.Calendar(calendarEl, {
