@@ -954,6 +954,7 @@ function renderAnalyticsChart() {
     options: {
       responsive: true,
       maintainAspectRatio: true,
+      clip: false,
       layout: { padding: { top: 20 } },
       interaction: { mode: 'index', intersect: false },
       plugins: {
