@@ -41,7 +41,7 @@ const POMO_DURATIONS   = { focus: 25 * 60, break: 5 * 60 };
 const CIRCUMFERENCE    = 2 * Math.PI * 40;
 const STATUSES         = ['In Progress', 'Backlog', 'Blocked', 'Done'];
 
-// Generic placeholders so first-time users aren't confused
+// FIX 5: Generic placeholders so first-time users aren't confused
 const DEFAULT_ROLES    = ['Role 1', 'Role 2', 'Role 3'];
 const DEFAULT_COLOR_ID = 'rose';
 
@@ -55,7 +55,7 @@ const ROLE_COLORS = [
   { id: 'lilac',    bg: '#F0E0FF', border: '#D0A8F0', text: '#702090', eventBg: '#E8D0FF', eventBorder: '#C098E8' },
 ];
 
-// Generic task placeholders
+// FIX 5: Generic task placeholders
 /** @type {Task[]} */
 const SAMPLE_TASKS = [
   { id:1, title:'Task Title 1', role:'Role 1', status:'In Progress', priority:'High',   due: todayISO(),    done: false, recurring: false },
@@ -86,7 +86,7 @@ let pomoSeconds = POMO_DURATIONS.focus;
 /** @type {number|null} */ let pomoInterval = null;
 let tomatoCount = 0;
 let tomatoDate  = todayISO();
-// Track daily pomo history so analytics can show past focus hours
+// FIX 1: Track daily pomo history so analytics can show past focus hours
 /** @type {Record<string,number>} — date string → pomodoro count */
 let pomoHistory = {};
 
@@ -255,7 +255,7 @@ async function loadFromFirestore() {
       roleColorMap = data.roleColorMap || {};
       tomatoCount  = data.tomatoDate === todayISO() ? (data.tomatoCount || 0) : 0;
       tomatoDate   = todayISO();
-      // Load pomo history
+      // FIX 1: Load pomo history
       pomoHistory  = data.pomoHistory  || {};
       const noteEl = document.getElementById('notepad');
       if (noteEl) noteEl.value = data.note || '';
@@ -279,7 +279,7 @@ async function saveToFirestore() {
   try {
     await userDoc().set({
       tasks, nextId, roles, roleColorMap, tomatoCount, tomatoDate,
-      pomoHistory,  // persist history
+      pomoHistory,  // FIX 1: persist history
       note:        noteEl ? noteEl.value : '',
       displayName: currentUser.displayName || '',
       updatedAt:   firebase.firestore.FieldValue.serverTimestamp(),
@@ -303,7 +303,7 @@ async function saveNote() {
 
 function saveTomatoCount() {
   if (!currentUser) return;
-  // Record this date's count in history every time it changes
+  // FIX 1: Record this date's count in history every time it changes
   pomoHistory[tomatoDate] = tomatoCount;
   userDoc().update({ tomatoCount, tomatoDate, pomoHistory }).catch(() => saveToFirestore());
 }
@@ -321,7 +321,7 @@ function renderMetrics() {
   setText('m-blocked',    String(active.filter(t => t.status === 'Blocked').length));
 }
 
-//  High priority tasks only (not filtered by due date)
+// FIX 3: Today's priorities = High priority tasks only (not filtered by due date)
 function renderToday() {
   const el = document.getElementById('today-list'); if (!el) return;
   const top = tasks
@@ -338,7 +338,7 @@ function renderToday() {
     : `<p class="text-sm text-pink-200 text-center py-4">No high priority tasks right now!</p>`;
 }
 
-// Daily recurring tasks
+// FIX 4: Urgent panel → daily recurring tasks
 function renderUrgent() {
   const el = document.getElementById('urgent-list'); if (!el) return;
   const recurring = tasks.filter(t => t.recurring && !t.done);
@@ -407,7 +407,7 @@ function renderKanban(role, elId, dateFilter) {
 
 function taskCardHTML(t, showRole) {
   const c = getRoleColor(t.role);
-  // Show recurring badge on card
+  // FIX 4: Show recurring badge on card
   const recurringBadge = t.recurring
     ? `<span style="font-size:10px;background:#FFF0F5;color:#C05070;border:1px solid #FFD6E7;border-radius:99px;padding:1px 6px;font-weight:500;">🔁 Daily</span>`
     : '';
@@ -886,7 +886,7 @@ function getAnalyticsData(filter) {
     // Completed tasks whose due date matches this day
     completedTasksData.push(tasks.filter(t => t.done && t.due === dateStr).length);
 
-    // Use pomoHistory for past days, live tomatoCount for today
+    // FIX 1: Use pomoHistory for past days, live tomatoCount for today
     const dayPomos   = dateStr === tomatoDate ? tomatoCount : (pomoHistory[dateStr] || 0);
     const focusHours = Math.round((dayPomos * 25 / 60) * 10) / 10;
     focusHoursData.push(focusHours);
@@ -931,6 +931,7 @@ function renderAnalyticsChart() {
     options: {
       responsive: true,
       maintainAspectRatio: true,
+      layout: { padding: { top: 20 } },
       interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: {
@@ -948,11 +949,11 @@ function renderAnalyticsChart() {
           titleFont: { family: "'DM Sans', sans-serif", weight: '600' },
           bodyFont: { family: "'DM Sans', sans-serif", size: 12 },
         },
-        // Show data labels directly on bars via chartjs-plugin-datalabels
+        // FIX 2: Show data labels directly on bars via chartjs-plugin-datalabels
         datalabels: {
           anchor: 'end',
-          align: 'end',
-          offset: 2,
+          align: 'top',
+          offset: 4,
           font: { family: "'DM Sans', sans-serif", size: 10, weight: '600' },
           formatter: (value, context) => {
             if (value === 0) return '';
