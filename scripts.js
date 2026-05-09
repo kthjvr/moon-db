@@ -1054,6 +1054,46 @@ function setAnalyticsFilter(filter) {
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 (function init() {
+  // ── DEV MODE: skip auth when running locally ──────────────────────────
+  const isLocal = location.hostname === 'localhost' 
+               || location.hostname === '127.0.0.1'
+               || location.hostname === '';
+
+  if (isLocal) {
+    console.log('🌙 Dev mode — skipping auth');
+    // Mock a fake user
+    currentUser = {
+      uid:         'dev-user',
+      displayName: 'Dev User',
+      email:       'dev@moondb.local',
+      photoURL:    null,
+      updateProfile: () => Promise.resolve(),
+    };
+    updateUserDisplay(currentUser);
+    showAppScreen();
+
+    const todayEl = document.getElementById('today-label');
+    if (todayEl) todayEl.textContent = new Date().toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+
+    // Load from localStorage instead of Firestore in dev
+    loadFromLocalStorage();
+    renderNavTabs();
+    renderRoleTabs();
+    updateRoleSelect();
+    render();
+    updatePomoDisplay();
+    updateTomatoDisplay();
+    setTimeout(() => { initCalendar(); }, 100);
+    setTimeout(() => { renderAnalyticsChart(); }, 150);
+
+    const notepad = document.getElementById('notepad');
+    if (notepad) {
+      let noteTimer = 0;
+      notepad.addEventListener('input', () => { clearTimeout(noteTimer); noteTimer = setTimeout(saveNote, 800); });
+    }
+    return; // skip the auth listener below
+  }
+  // ── PRODUCTION: normal Firebase auth ─────────────────────────────────
   auth.onAuthStateChanged(async (user) => {
     if (user) {
       currentUser = user;
@@ -1084,6 +1124,52 @@ function setAnalyticsFilter(filter) {
     }
   });
 })();
+
+function loadFromLocalStorage() {
+  try {
+    const raw = localStorage.getItem('moondb_dev');
+    if (raw) {
+      const d    = JSON.parse(raw);
+      tasks        = d.tasks        || [...SAMPLE_TASKS];
+      nextId       = d.nextId       || 200;
+      roles        = d.roles        || [...DEFAULT_ROLES];
+      roleColorMap = d.roleColorMap || {};
+      pomoHistory  = d.pomoHistory  || {};
+      tomatoCount  = d.tomatoDate === todayISO() ? (d.tomatoCount || 0) : 0;
+      tomatoDate   = todayISO();
+      const noteEl = document.getElementById('notepad');
+      if (noteEl) noteEl.value = d.note || '';
+    } else {
+      tasks  = [...SAMPLE_TASKS];
+      nextId = 200;
+      roles  = [...DEFAULT_ROLES];
+    }
+  } catch(_) { tasks = [...SAMPLE_TASKS]; }
+
+  roles.forEach((r, i) => { if (!roleColorMap[r]) roleColorMap[r] = ROLE_COLORS[i % ROLE_COLORS.length].id; });
+  dateFilters = { all: 'all' };
+  roles.forEach(r => { dateFilters[r.toLowerCase().replace(/\s+/g, '_')] = 'all'; });
+}
+
+function saveToLocalStorage() {
+  const noteEl = document.getElementById('notepad');
+  try {
+    localStorage.setItem('moondb_dev', JSON.stringify({
+      tasks, nextId, roles, roleColorMap, pomoHistory,
+      tomatoCount, tomatoDate,
+      note: noteEl ? noteEl.value : '',
+    }));
+  } catch(_) {}
+}
+
+function saveData() {
+  const isLocal = location.hostname === 'localhost' 
+               || location.hostname === '127.0.0.1'
+               || location.hostname === '';
+  if (isLocal) saveToLocalStorage();
+  else saveToFirestore();
+  if (activeTab === 'overview') updateCalendarEvents();
+}
 
 // ─── Import/Export ────────────────────────────────────────────────────────────
 function exportData() {
