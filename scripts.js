@@ -841,7 +841,7 @@ function initCalendar() {
     initialView: 'dayGridMonth',
     headerToolbar: { left:'prev,next today', center:'title', right:'dayGridMonth,dayGridWeek' },
     eventOrder: 'order,start,title',
-    editable: true, eventDurationEditable: false,
+    editable: true, eventDurationEditable: false, dayMaxEvents: false,
     height: 'auto', contentHeight: 'auto',
     events: getCalendarEvents(),
     eventDrop: function(info) {
