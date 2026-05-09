@@ -357,6 +357,16 @@ body { background-color: #FFF7FA; font-family: 'DM Sans', sans-serif; }
       overflow-y: auto;
     }
 
+  .settings-tab.active {
+    background: white !important;
+    color: #C05070 !important;
+    border-right: 2px solid #F0A0C0;
+  }
+  .settings-tab:hover:not(.active) {
+    background: #FFF0F5 !important;
+    color: #C05070 !important;
+  }
+
     @keyframes slideUp {
       from {
         opacity: 0;

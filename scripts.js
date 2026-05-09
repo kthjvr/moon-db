@@ -824,6 +824,17 @@ function closeSettingsModal(e) {
   if (e && e.target.id !== 'settings-modal-overlay') return;
   document.getElementById('settings-modal-overlay')?.classList.remove('active');
 }
+function switchSettingsTab(tab) {
+  // Update sidebar buttons
+  document.querySelectorAll('.settings-tab').forEach(btn => {
+    btn.classList.remove('active');
+  });
+  document.getElementById(`stab-${tab}`).classList.add('active');
+
+  // Show/hide panels
+  document.getElementById('spanel-roles').style.display = tab === 'roles' ? 'block' : 'none';
+  document.getElementById('spanel-data').style.display  = tab === 'data'  ? 'block' : 'none';
+}
 
 // ─── Calendar ─────────────────────────────────────────────────────────────────
 function getPriorityEventClass(priority) {
