@@ -33,6 +33,31 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db   = firebase.firestore();
 
+// Custom bar label plugin — draws values above each bar without external dependencies
+const barLabelPlugin = {
+  id: 'barLabels',
+  afterDatasetsDraw(chart) {
+    const { ctx } = chart;
+    chart.data.datasets.forEach((dataset, i) => {
+      const meta = chart.getDatasetMeta(i);
+      if (meta.hidden) return;
+      meta.data.forEach((bar, index) => {
+        const value = dataset.data[index];
+        if (!value || value === 0) return;
+        const label = i === 1 ? `${value}h` : String(value);
+        ctx.save();
+        ctx.font = "600 10px 'DM Sans', sans-serif";
+        ctx.fillStyle = i === 0 ? '#A03060' : '#6040A0';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(label, bar.x, bar.y - 3);
+        ctx.restore();
+      });
+    });
+  }
+};
+// barLabelPlugin passed directly into chart instance (see renderAnalyticsChart)
+
 // ─── Constants ─────────────────────────────────────────────────────────────
 const POMO_DURATIONS   = { focus: 25 * 60, break: 5 * 60 };
 const CIRCUMFERENCE    = 2 * Math.PI * 40;
@@ -267,6 +292,19 @@ async function loadFromFirestore() {
   roles.forEach((r, i) => { if (!roleColorMap[r]) roleColorMap[r] = ROLE_COLORS[i % ROLE_COLORS.length].id; });
   dateFilters = { all: 'all' };
   roles.forEach(r => { dateFilters[r.toLowerCase().replace(/\s+/g, '_')] = 'all'; });
+
+  // Reset recurring tasks that were completed on a previous day
+  let recurringReset = false;
+  tasks.forEach(t => {
+    if (t.recurring && t.done && t.doneDate && t.doneDate !== todayISO()) {
+      t.done     = false;
+      t.status   = 'In Progress';
+      t.doneDate = '';
+      recurringReset = true;
+    }
+  });
+  if (recurringReset) saveToFirestore();
+
   showLoadingState(false);
 }
 
@@ -487,7 +525,12 @@ function handleDrop(e) {
 // ─── Actions ──────────────────────────────────────────────────────────────────
 function toggleDone(id) {
   const t = tasks.find(x => x.id === id);
-  if (t) { t.done = !t.done; t.status = t.done ? 'Done' : 'Backlog'; }
+  if (t) {
+    t.done   = !t.done;
+    t.status = t.done ? 'Done' : (t.recurring ? 'In Progress' : 'Backlog');
+    // Track the date it was completed so we can reset it tomorrow
+    t.doneDate = t.done ? todayISO() : '';
+  }
   saveData(); render();
 }
 function deleteTask(id) { tasks = tasks.filter(x => x.id !== id); saveData(); render(); }
@@ -750,9 +793,11 @@ function getPriorityEventClass(priority) {
   return { High:'event-high', Medium:'event-medium', Low:'event-low' }[priority] || '';
 }
 function getCalendarEvents() {
-  return tasks.filter(t => t.due).map(t => {
+  const events = [];
+
+  tasks.filter(t => t.due).forEach(t => {
     const roleOrder = roles.indexOf(t.role);
-    return {
+    const baseEvent = {
       id: `task-${t.id}`, title: t.title, start: t.due, end: t.due,
       order: roleOrder === -1 ? 999 : roleOrder,
       extendedProps: {
@@ -762,8 +807,28 @@ function getCalendarEvents() {
       classNames: [getPriorityEventClass(t.priority)],
       display: 'block',
     };
+    events.push(baseEvent);
+
+    // For recurring tasks, also show them on the next 30 days
+    if (t.recurring) {
+      for (let d = 1; d <= 30; d++) {
+        const futureDate = offsetDate(d);
+        if (futureDate === t.due) continue; // skip if same as original due date
+        events.push({
+          ...baseEvent,
+          id: `task-${t.id}-r${d}`,
+          start: futureDate,
+          end:   futureDate,
+          extendedProps: { ...baseEvent.extendedProps, done: false }, // future = always not done
+        });
+      }
+    }
   });
+
+  return events;
 }
+
+
 function initCalendar() {
   const calendarEl = document.getElementById('calendar'); if (!calendarEl) return;
   calendar = new FullCalendar.Calendar(calendarEl, {
@@ -902,6 +967,7 @@ function renderAnalyticsChart() {
 
   analyticsChart = new Chart(ctx, {
     type: 'bar',
+    plugins: [barLabelPlugin],
     data: {
       labels: data.labels,
       datasets: [
@@ -928,6 +994,8 @@ function renderAnalyticsChart() {
     options: {
       responsive: true,
       maintainAspectRatio: true,
+      clip: false,
+      layout: { padding: { top: 20 } },
       interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: {
@@ -945,19 +1013,7 @@ function renderAnalyticsChart() {
           titleFont: { family: "'DM Sans', sans-serif", weight: '600' },
           bodyFont: { family: "'DM Sans', sans-serif", size: 12 },
         },
-        // FIX 2: Show data labels directly on bars via chartjs-plugin-datalabels
-        datalabels: {
-          anchor: 'end',
-          align: 'end',
-          offset: 2,
-          font: { family: "'DM Sans', sans-serif", size: 10, weight: '600' },
-          formatter: (value, context) => {
-            if (value === 0) return '';
-            // For focus hours dataset, append 'h'
-            return context.datasetIndex === 1 ? `${value}h` : value;
-          },
-          color: (context) => context.datasetIndex === 0 ? '#A03060' : '#6040A0',
-        },
+
       },
       scales: {
         x: {
