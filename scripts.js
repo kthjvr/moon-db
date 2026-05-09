@@ -46,11 +46,17 @@ const barLabelPlugin = {
         if (!value || value === 0) return;
         const label = i === 1 ? `${value}h` : String(value);
         ctx.save();
-        ctx.font = "600 10px 'DM Sans', sans-serif";
-        ctx.fillStyle = i === 0 ? '#A03060' : '#6040A0';
+        const barHeight = bar.base - bar.y;
+        const insideY   = bar.y + barHeight / 2;
+        const drawInside = barHeight >= 18;
+
+        ctx.font = "600 11px 'DM Sans', sans-serif";
+        ctx.fillStyle = drawInside
+          ? (i === 0 ? '#802840' : '#402880')
+          : (i === 0 ? '#A03060' : '#6040A0');
         ctx.textAlign = 'center';
-        ctx.textBaseline = 'bottom';
-        ctx.fillText(label, bar.x, bar.y - 3);
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, bar.x, drawInside ? insideY : bar.y - 6);
         ctx.restore();
       });
     });
