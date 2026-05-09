@@ -107,6 +107,7 @@ let calendar      = null;
 /** @type {Record<string,string>} */ let sortDirections = {};
 /** @type {Chart|null} */            let analyticsChart = null;
 let analyticsFilter = 'today';
+let calendarRoleFilter = 'all'; // 'all'
 
 let pomoMode    = 'focus';
 let pomoRunning = false;
@@ -494,6 +495,36 @@ function taskRowHTML(t, showDelete) {
     </div>`;
 }
 
+// ─── Render: Calendar Filter ─────────────────────────────────────────────────────────
+function renderCalendarRoleFilter() {
+  const el = document.getElementById('calendar-role-filter');
+  if (!el) return;
+  const options = ['all', ...roles];
+  el.innerHTML = options.map(r => {
+    const isActive = calendarRoleFilter === r;
+    const c = r === 'all' ? null : getRoleColor(r);
+    const activeBg     = c ? c.bg     : '#F8C8DC';
+    const activeBorder = c ? c.border : '#F0A0C0';
+    const activeText   = c ? c.text   : '#802840';
+    return `<button
+      onclick="setCalendarRoleFilter('${r}')"
+      style="
+        font-size:11px; font-weight:500; padding:3px 10px; border-radius:99px; cursor:pointer; transition:all 0.15s;
+        background:${isActive ? activeBg : 'white'};
+        border:1.5px solid ${isActive ? activeBorder : '#FFD6E7'};
+        color:${isActive ? activeText : '#C08090'};
+      ">
+      ${r === 'all' ? 'All' : r}
+    </button>`;
+  }).join('');
+}
+
+function setCalendarRoleFilter(role) {
+  calendarRoleFilter = role;
+  renderCalendarRoleFilter();
+  updateCalendarEvents();
+}
+
 // ─── Drag and drop ────────────────────────────────────────────────────────────
 function handleDragStart(e, taskId) {
   draggedTask = taskId;
@@ -801,7 +832,7 @@ function getPriorityEventClass(priority) {
 function getCalendarEvents() {
   const events = [];
 
-  tasks.filter(t => t.due).forEach(t => {
+  tasks.filter(t => t.due && (calendarRoleFilter === 'all' || t.role === calendarRoleFilter)).forEach(t => {
     const roleOrder = roles.indexOf(t.role);
     const baseEvent = {
       id: `task-${t.id}`, title: t.title, start: t.due, end: t.due,
@@ -1091,6 +1122,7 @@ function setAnalyticsFilter(filter) {
     updateTomatoDisplay();
     setTimeout(() => { initCalendar(); }, 100);
     setTimeout(() => { renderAnalyticsChart(); }, 150);
+    renderCalendarRoleFilter();
 
     const notepad = document.getElementById('notepad');
     if (notepad) {
@@ -1118,6 +1150,7 @@ function setAnalyticsFilter(filter) {
       updateTomatoDisplay();
       setTimeout(() => { initCalendar(); }, 100);
       setTimeout(() => { renderAnalyticsChart(); }, 150);
+      renderCalendarRoleFilter();
 
       const notepad = document.getElementById('notepad');
       if (notepad) {
