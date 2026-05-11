@@ -689,11 +689,23 @@ function playNotificationSound() {
 }
 function updatePomoDisplay() {
   const disp = document.getElementById('pomo-display');
-  const arc  = /** @type {SVGCircleElement|null} */ (document.getElementById('pomo-arc'));
+  const arc  = document.getElementById('pomo-arc');
   if (!disp || !arc) return;
   disp.textContent = fmtSeconds(pomoSeconds);
   arc.style.strokeDashoffset = String(CIRCUMFERENCE * (1 - pomoSeconds / POMO_DURATIONS[pomoMode]));
   arc.style.stroke = pomoMode === 'focus' ? '#F8C8DC' : '#E6D6FF';
+
+  // Sync float widget
+  const floatDisp  = document.getElementById('pomo-float-display');
+  const floatBtn   = document.getElementById('pomo-float-btn');
+  const floatLabel = document.getElementById('pomo-float-label');
+  if (floatDisp)  floatDisp.textContent  = fmtSeconds(pomoSeconds);
+  if (floatBtn)   floatBtn.textContent   = pomoRunning ? 'Pause' : (pomoSeconds < POMO_DURATIONS[pomoMode] ? 'Resume' : 'Start');
+  if (floatLabel) floatLabel.textContent = pomoMode === 'focus' ? 'Focus session' : 'Short break';
+
+  // Sync whichever PiP is active
+  if (window._pipWindow && !window._pipWindow.closed) syncPiPWindow();
+  else if (document.pictureInPictureElement) drawPiPFrame();
 }
 function pomoToggle() {
   if (pomoRunning) {
@@ -726,6 +738,336 @@ function pomoSwitch() {
 function updateTomatoDisplay() {
   const el = document.getElementById('tomato-counter');
   if (el) el.textContent = '🍅'.repeat(tomatoCount);
+}
+function showPomodoroFloat() {
+  const el = document.getElementById('pomo-float');
+  if (el) { el.style.display = 'flex'; updatePomoDisplay(); }
+}
+
+function hidePomodoroFloat() {
+  const el = document.getElementById('pomo-float');
+  if (el) el.style.display = 'none';
+}
+
+// Drag logic
+(function initPomoDrag() {
+  document.addEventListener('DOMContentLoaded', () => {
+    const el = document.getElementById('pomo-float');
+    if (!el) return;
+    let isDragging = false, startX, startY, startLeft, startBottom;
+
+    el.addEventListener('mousedown', (e) => {
+      if (e.target.tagName === 'BUTTON') return; // don't drag when clicking buttons
+      isDragging = true;
+      startX = e.clientX; startY = e.clientY;
+      const rect = el.getBoundingClientRect();
+      startLeft   = rect.left;
+      startBottom = window.innerHeight - rect.bottom;
+      el.style.cursor = 'grabbing';
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      const newLeft   = Math.max(0, Math.min(window.innerWidth  - el.offsetWidth,  startLeft   + dx));
+      const newBottom = Math.max(0, Math.min(window.innerHeight - el.offsetHeight, startBottom - dy));
+      el.style.left   = newLeft   + 'px';
+      el.style.bottom = newBottom + 'px';
+      el.style.right  = 'auto';
+    });
+
+    document.addEventListener('mouseup', () => {
+      isDragging = false;
+      el.style.cursor = 'grab';
+    });
+  });
+})();
+
+// ─── Picture-in-Picture Timer ─────────────────────────────────────────────
+let pipInterval = null;
+
+function drawPiPFrame() {
+  const canvas = document.getElementById('pip-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+
+  ctx.clearRect(0, 0, w, h);
+
+  // Background
+  ctx.fillStyle = '#FFF7FA';
+  ctx.beginPath();
+  ctx.roundRect(0, 0, w, h, 20);
+  ctx.fill();
+
+  // Top accent strip
+  const accent = ctx.createLinearGradient(0, 0, w, 0);
+  accent.addColorStop(0, '#F8C8DC');
+  accent.addColorStop(1, '#E6D6FF');
+  ctx.fillStyle = accent;
+  ctx.beginPath();
+  ctx.roundRect(0, 0, w, 6, [20, 20, 0, 0]);
+  ctx.fill();
+
+  // Mode pill background
+  const pillW = 140, pillH = 22, pillX = (w - pillW) / 2, pillY = 18;
+  ctx.fillStyle = pomoMode === 'focus' ? '#FFE0EC' : '#E6D6FF';
+  ctx.beginPath();
+  ctx.roundRect(pillX, pillY, pillW, pillH, 99);
+  ctx.fill();
+
+  // Mode label
+  ctx.fillStyle = pomoMode === 'focus' ? '#C05070' : '#6040A0';
+  ctx.font = "600 11px sans-serif";
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(pomoMode === 'focus' ? '🌙  Focus Session' : '☕  Short Break', w / 2, pillY + pillH / 2);
+
+  // Timer ring (arc)
+  const cx = w / 2, cy = 80, radius = 34;
+  const progress = pomoSeconds / POMO_DURATIONS[pomoMode];
+
+  // Ring track
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.strokeStyle = '#FFD6E7';
+  ctx.lineWidth = 5;
+  ctx.stroke();
+
+  // Ring progress
+  const startAngle = -Math.PI / 2;
+  const endAngle   = startAngle + (Math.PI * 2 * progress);
+  const ringGrad   = ctx.createLinearGradient(cx - radius, cy, cx + radius, cy);
+  ringGrad.addColorStop(0, pomoMode === 'focus' ? '#F8C8DC' : '#CDB8F5');
+  ringGrad.addColorStop(1, pomoMode === 'focus' ? '#E07090' : '#8060C0');
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, startAngle, endAngle);
+  ctx.strokeStyle = ringGrad;
+  ctx.lineWidth = 5;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  // Timer text inside ring
+  ctx.fillStyle = '#802840';
+  ctx.font = "bold 22px monospace";
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(fmtSeconds(pomoSeconds), cx, cy);
+
+  // Status dot + text
+  const dotX = w / 2 - 32;
+  ctx.beginPath();
+  ctx.arc(dotX, 118, 4, 0, Math.PI * 2);
+  ctx.fillStyle = pomoRunning ? '#88C888' : '#F0A0C0';
+  ctx.fill();
+
+  ctx.fillStyle = pomoRunning ? '#4A8A4A' : '#C08090';
+  ctx.font = "500 11px sans-serif";
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(pomoRunning ? 'Running' : 'Paused', dotX + 10, 118);
+
+  // Tomato count
+  ctx.font = "12px sans-serif";
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('🍅'.repeat(Math.min(tomatoCount, 6)), w - 14, 118);
+}
+
+async function launchPiP() {
+  // Try modern Document PiP first (Chrome 116+)
+  if ('documentPictureInPicture' in window) {
+    await launchDocumentPiP();
+    return;
+  }
+  // Fallback to canvas PiP
+  if (!('pictureInPictureEnabled' in document) || !document.pictureInPictureEnabled) {
+    alert('Picture-in-Picture is not supported in your browser. Try Chrome!');
+    return;
+  }
+  await launchCanvasPiP();
+}
+
+async function launchDocumentPiP() {
+  try {
+    // Close existing PiP window if open
+    if (window._pipWindow && !window._pipWindow.closed) {
+      window._pipWindow.close();
+    }
+
+    const pipWin = await window.documentPictureInPicture.requestWindow({
+      width: 300, height: 120,
+    });
+    window._pipWindow = pipWin;
+    pipWin.document.title = '🌙 Moon DB Timer';
+
+    // Inject styles
+    const style = pipWin.document.createElement('style');
+    style.textContent = `
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body {
+        font-family: 'DM Sans', sans-serif;
+        background: #FFF7FA;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        overflow: hidden;
+      }
+      .pip-wrap {
+        width: 100%;
+        padding: 0.75rem 1rem;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        background: white;
+        border: 1.5px solid #FFD6E7;
+        border-radius: 1.25rem;
+        margin: 0 0.5rem;
+        box-shadow: 0 4px 16px rgba(200,80,120,0.12);
+        position: relative;
+      }
+      .pip-accent {
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 4px;
+        background: linear-gradient(to right, #F8C8DC, #E6D6FF);
+        border-radius: 1.25rem 1.25rem 0 0;
+      }
+      .pip-icon { font-size: 1.25rem; flex-shrink: 0; }
+      .pip-info { display: flex; flex-direction: column; gap: 0.1rem; flex: 1; }
+      .pip-label {
+        font-size: 0.6rem; font-weight: 700;
+        text-transform: uppercase; letter-spacing: 0.1em;
+        color: #F0A0C0;
+      }
+      .pip-time {
+        font-size: 1.4rem; font-weight: 700;
+        font-family: 'DM Mono', monospace;
+        color: #802840; line-height: 1;
+      }
+      .pip-buttons { display: flex; gap: 0.35rem; align-items: center; }
+      .pip-btn {
+        padding: 0.35rem 0.875rem;
+        border: none; border-radius: 0.75rem;
+        font-size: 0.78rem; font-weight: 600;
+        cursor: pointer; font-family: inherit;
+        transition: all 0.15s;
+      }
+      .pip-btn-main { background: #FFE0EC; color: #C05070; }
+      .pip-btn-main:hover { background: #FFD0E0; }
+      .pip-btn-reset {
+        background: #F5F5F5; color: #999;
+        padding: 0.35rem 0.5rem; font-size: 1rem;
+      }
+      .pip-btn-reset:hover { background: #EBEBEB; }
+      .pip-tomatoes {
+        font-size: 0.7rem; position: absolute;
+        bottom: 0.4rem; right: 0.75rem;
+        color: #F0A0C0;
+      }
+    `;
+    pipWin.document.head.appendChild(style);
+
+    // Build HTML
+    pipWin.document.body.innerHTML = `
+      <div class="pip-wrap">
+        <div class="pip-accent"></div>
+        <span class="pip-icon">🌙</span>
+        <div class="pip-info">
+          <span class="pip-label" id="pip-label">Focus Session</span>
+          <span class="pip-time"  id="pip-time">25:00</span>
+        </div>
+        <div class="pip-buttons">
+          <button class="pip-btn pip-btn-main"  id="pip-play">Start</button>
+          <button class="pip-btn pip-btn-reset" id="pip-reset">↺</button>
+        </div>
+        <div class="pip-tomatoes" id="pip-tomatoes"></div>
+      </div>
+    `;
+
+    // Wire up buttons to main window functions
+    pipWin.document.getElementById('pip-play').addEventListener('click', () => {
+      pomoToggle();
+      syncPiPWindow();
+    });
+    pipWin.document.getElementById('pip-reset').addEventListener('click', () => {
+      pomoReset();
+      syncPiPWindow();
+    });
+
+    // Initial sync
+    syncPiPWindow();
+
+    // Keep syncing every second
+    clearInterval(pipInterval);
+    pipInterval = setInterval(syncPiPWindow, 500);
+
+    pipWin.addEventListener('pagehide', () => {
+      clearInterval(pipInterval);
+      window._pipWindow = null;
+    });
+
+  } catch (err) {
+    console.error('Document PiP failed:', err);
+    await launchCanvasPiP(); // fallback
+  }
+}
+
+function syncPiPWindow() {
+  const pipWin = window._pipWindow;
+  if (!pipWin || pipWin.closed) { clearInterval(pipInterval); return; }
+
+  const timeEl     = pipWin.document.getElementById('pip-time');
+  const labelEl    = pipWin.document.getElementById('pip-label');
+  const playBtn    = pipWin.document.getElementById('pip-play');
+  const tomatoesEl = pipWin.document.getElementById('pip-tomatoes');
+
+  if (timeEl)     timeEl.textContent     = fmtSeconds(pomoSeconds);
+  if (labelEl)    labelEl.textContent    = pomoMode === 'focus' ? 'Focus Session' : 'Short Break';
+  if (playBtn)    playBtn.textContent    = pomoRunning ? 'Pause' : (pomoSeconds < POMO_DURATIONS[pomoMode] ? 'Resume' : 'Start');
+  if (tomatoesEl) tomatoesEl.textContent = '🍅'.repeat(Math.min(tomatoCount, 5));
+}
+
+// Old canvas PiP kept as fallback
+async function launchCanvasPiP() {
+  const canvas = document.getElementById('pip-canvas');
+  const video  = document.getElementById('pip-video');
+  if (!canvas || !video) return;
+
+  drawPiPFrame();
+
+  if (!video.srcObject) {
+    const stream = canvas.captureStream(10);
+    video.srcObject = stream;
+  }
+
+  await new Promise((resolve) => {
+    if (video.readyState >= 2) { resolve(); return; }
+    video.oncanplay = () => resolve();
+  });
+
+  try {
+    await video.play();
+  } catch (err) {
+    await new Promise(r => setTimeout(r, 200));
+    await video.play();
+  }
+
+  try {
+    await video.requestPictureInPicture();
+  } catch (err) {
+    alert("Could not launch Picture-in-Picture.");
+    console.error(err); return;
+  }
+
+  clearInterval(pipInterval);
+  pipInterval = setInterval(drawPiPFrame, 500);
+  video.addEventListener('leavepictureinpicture', () => {
+    clearInterval(pipInterval);
+  }, { once: true });
 }
 
 // ─── Utility ──────────────────────────────────────────────────────────────────
