@@ -624,6 +624,7 @@ function renderRoleSnapshot() {
 
 // ─── Render: Kanban ───────────────────────────────────────────────────────────
 function renderKanban(role, elId, dateFilter) {
+  const isMobile = window.innerWidth <= 768;
   const el = document.getElementById(elId);
   if (!el) return;
   let filtered = tasks.filter(
@@ -653,7 +654,33 @@ function renderKanban(role, elId, dateFilter) {
         </div>
       </div>`;
   }
-  el.innerHTML = html;
+  // On mobile, prepend column switcher tabs
+  if (isMobile) {
+    const activeCol = el.dataset.mobileCol || 'In Progress';
+    const tabsHtml = `
+      <div class="kanban-mobile-tabs" style="display:flex;gap:0.5rem;margin-bottom:1rem;overflow-x:auto;padding-bottom:0.25rem;">
+        ${STATUSES.map(s => `
+          <button onclick="setMobileKanbanCol('${elId}','${s}')"
+            style="flex-shrink:0;padding:0.4rem 1rem;border-radius:0.75rem;font-size:0.8rem;font-weight:600;cursor:pointer;border:2px solid ${activeCol===s?'#A888E0':'#FFD6E7'};background:${activeCol===s?'#E6D6FF':'white'};color:${activeCol===s?'#6040A0':'#999'};transition:all 0.2s;">
+            ${s}
+          </button>`).join('')}
+      </div>`;
+    el.innerHTML = tabsHtml + html;
+    // Show only active column
+    el.querySelectorAll('.kanban-column').forEach(col => {
+      const title = col.querySelector('.kanban-column-title')?.textContent?.trim();
+      col.classList.toggle('mobile-active', title === activeCol);
+    });
+  } else {
+    el.innerHTML = html;
+  }
+}
+
+function setMobileKanbanCol(elId, status) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  el.dataset.mobileCol = status;
+  render();
 }
 
 function taskCardHTML(t, showRole) {
@@ -1490,12 +1517,14 @@ function renderRoleTabs() {
           <button class="date-filter-badge"        onclick="setDateFilter('${key}','month')" data-filter="month">This month</button>
           <div style="margin-left:auto;display:flex;gap:0.5rem;">
             <button onclick="setSortDirection('${key}','asc')" id="sort-${key}-asc"
-              style="padding:0.5rem 0.75rem;border-radius:0.75rem;font-size:0.875rem;font-weight:500;cursor:pointer;transition:all 0.2s;background:white;color:#999;border:2px solid #FFD6E7;">
-              📅 Earliest first
+              title="Earliest first"
+              style="padding:0.4rem 0.6rem;border-radius:0.75rem;font-size:0.9rem;cursor:pointer;transition:all 0.2s;background:white;color:#999;border:2px solid #FFD6E7;">
+              ↑
             </button>
             <button onclick="setSortDirection('${key}','desc')" id="sort-${key}-desc"
-              style="padding:0.5rem 0.75rem;border-radius:0.75rem;font-size:0.875rem;font-weight:500;cursor:pointer;transition:all 0.2s;background:white;color:#999;border:2px solid #FFD6E7;">
-              📅 Latest first
+              title="Latest first"
+              style="padding:0.4rem 0.6rem;border-radius:0.75rem;font-size:0.9rem;cursor:pointer;transition:all 0.2s;background:white;color:#999;border:2px solid #FFD6E7;">
+              ↓
             </button>
           </div>
         </div>
