@@ -312,6 +312,16 @@ async function loadFromFirestore() {
   });
   if (recurringReset) saveToFirestore();
 
+  // Auto-move tasks due today from Backlog → In Progress
+  let autoMoved = false;
+  tasks.forEach(t => {
+    if (!t.done && t.due === todayISO() && t.status === 'Backlog') {
+      t.status  = 'In Progress';
+      autoMoved = true;
+    }
+  });
+  if (autoMoved) saveToFirestore();
+
   showLoadingState(false);
 }
 
@@ -974,6 +984,14 @@ function deleteCurrentTask() {
   const task = window.currentModalTask;
   if (task && confirm(`Delete "${task.title}"?`)) { deleteTask(task.id); closeTaskModal(); }
 }
+function duplicateCurrentTask() {
+  const task = window.currentModalTask;
+  if (!task) return;
+  tasks.unshift({ id: nextId++, title: task.title, role: task.role, status: 'Backlog', priority: task.priority, due: task.due, done: false, recurring: task.recurring || false });
+  saveData();
+  render();
+  closeTaskModal();
+}
 
 // ─── Analytics ────────────────────────────────────────────────────────────────
 function getAnalyticsData(filter) {
@@ -1199,6 +1217,14 @@ function loadFromLocalStorage() {
   roles.forEach((r, i) => { if (!roleColorMap[r]) roleColorMap[r] = ROLE_COLORS[i % ROLE_COLORS.length].id; });
   dateFilters = { all: 'all' };
   roles.forEach(r => { dateFilters[r.toLowerCase().replace(/\s+/g, '_')] = 'all'; });
+
+  // Auto-move tasks due today from Backlog → In Progress
+  tasks.forEach(t => {
+    if (!t.done && t.due === todayISO() && t.status === 'Backlog') {
+      t.status = 'In Progress';
+    }
+  });
+  saveToLocalStorage();
 }
 
 function saveToLocalStorage() {
