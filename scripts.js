@@ -340,6 +340,20 @@ function editDisplayName() {
     });
 }
 
+function saveDisplayNameFromSettings() {
+  const input = document.getElementById('settings-display-name');
+  const newName = input?.value.trim();
+  if (!newName) { alert('Name cannot be empty!'); return; }
+  currentUser.updateProfile({ displayName: newName })
+    .then(() => {
+      updateUserDisplay(currentUser);
+      userDoc().update({ displayName: newName }).catch(() => {});
+      input.style.borderColor = '#88D8B8';
+      setTimeout(() => { input.style.borderColor = '#FFD6E7'; }, 1500);
+    })
+    .catch(err => { console.error(err); alert('Failed to update name.'); });
+}
+
 // ─── Task title editing ──────────────────────────────────────────────────────
 function startEditTaskTitle() {
   if (isEditingTaskTitle) return;
@@ -546,16 +560,31 @@ function showLoadingState(loading) {
 
 // ─── Render: Overview ─────────────────────────────────────────────────────────
 function renderMetrics() {
-  const active = tasks.filter((t) => !t.done);
-  setText("m-total", String(active.length));
-  setText(
-    "m-inprogress",
-    String(active.filter((t) => t.status === "In Progress").length),
-  );
-  setText(
-    "m-blocked",
-    String(active.filter((t) => t.status === "Blocked").length),
-  );
+  const active    = tasks.filter(t => !t.done);
+  const completed = tasks.filter(t => t.done);
+  const blocked   = active.filter(t => t.status === 'Blocked');
+
+  setText('m-total',     String(active.length));
+  setText('m-completed', String(completed.length));
+  setText('m-blocked',   String(blocked.length));
+
+  // Row 2: per role — today's in-progress tasks
+  const rolesEl = document.getElementById('m-roles');
+  if (!rolesEl) return;
+
+  // Dynamic grid columns based on role count
+  rolesEl.style.gridTemplateColumns = `repeat(${roles.length}, minmax(0, 1fr))`;
+
+  rolesEl.innerHTML = roles.map(r => {
+    const c         = getRoleColor(r);
+    const todayTasks = tasks.filter(t => t.role === r && t.due === todayISO() && !t.done && t.status === 'In Progress');
+    return `
+      <div style="background:${c.bg};border:1px solid ${c.border};border-radius:1rem;padding:1rem;">
+        <p style="font-size:0.7rem;font-weight:600;color:${c.text};margin-bottom:0.25rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r}</p>
+        <p style="font-size:1.5rem;font-weight:600;color:${c.text};">${todayTasks.length}</p>
+        <p style="font-size:0.65rem;color:${c.text};opacity:0.7;margin-top:0.1rem;">in progress today</p>
+      </div>`;
+  }).join('');
 }
 
 // Today's priorities = High priority tasks only (not filtered by due date)
@@ -589,7 +618,7 @@ function renderUrgent() {
     .map(
       (t) => `
     <div class="flex items-start gap-2 p-2 rounded-xl bg-pink-50 border border-pink-100 mb-2 last:mb-0">
-      <span style="font-size:1rem;flex-shrink:0;margin-top:1px;">🔁</span>
+      <span style="font-size:1rem;flex-shrink:0;margin-top:1px;"><i class="ph-bold ph-arrows-clockwise"></i></span>
       <div class="flex-1 min-w-0">
         <p class="text-xs font-medium text-pink-700 leading-snug">${t.title}</p>
         <p class="text-[10px] text-pink-400 mt-0.5">${t.role} · recurring daily</p>
@@ -687,7 +716,7 @@ function taskCardHTML(t, showRole) {
   const c = getRoleColor(t.role);
   // Show recurring badge on card
   const recurringBadge = t.recurring
-    ? `<span style="font-size:10px;background:#FFF0F5;color:#C05070;border:1px solid #FFD6E7;border-radius:99px;padding:1px 6px;font-weight:500;">🔁 Daily</span>`
+    ? `<span style="font-size:10px;background:#FFF0F5;color:#C05070;border:1px solid #FFD6E7;border-radius:99px;padding:1px 6px;font-weight:500;"><i class="ph-bold ph-arrows-clockwise"> Daily</i></span>`
     : "";
   return `
     <div class="task-card" draggable="true" id="card-${t.id}" style="border-left:3px solid ${c.border};"
@@ -703,9 +732,9 @@ function taskCardHTML(t, showRole) {
           style="padding:0.25rem 0.5rem;border:1px solid #FFD6E7;border-radius:0.375rem;font-size:0.75rem;cursor:pointer;"
           onchange="updateTaskDue(${t.id},this.value)" />
         <div style="display:flex;gap:0.25rem;align-items:center;">
-          <button class="task-card-delete" onclick="toggleRecurring(${t.id})" title="${t.recurring ? "Remove recurring" : "Mark as recurring"}" style="opacity:0.6;font-size:0.85rem;">${t.recurring ? "🔁" : "↺"}</button>
-          <button class="task-card-delete" onclick="duplicateTask(${t.id})" title="Duplicate" style="opacity:0.6;">📋</button>
-          <button class="task-card-delete" onclick="deleteTask(${t.id})">×</button>
+          <button class="task-card-delete" onclick="toggleRecurring(${t.id})" title="${t.recurring ? "Remove recurring" : "Mark as recurring"}" style="opacity:0.6;font-size:0.85rem;">${t.recurring ? "<i class='ph-bold ph-arrows-clockwise'></i>" : "<i class='ph-bold ph-arrows-clockwise'></i>"}</button>
+          <button class="task-card-delete" onclick="duplicateTask(${t.id})" title="Duplicate" style="opacity:0.6;"><i class="ph-bold ph-copy"></i></button>
+          <button class="task-card-delete" onclick="deleteTask(${t.id})"><i class="ph-bold ph-x"></i></button>
         </div>
       </div>
     </div>`;
@@ -723,7 +752,7 @@ function taskRowHTML(t, showDelete) {
         <p class="text-sm text-gray-700 leading-snug ${t.done ? "line-through text-gray-300" : ""}" onclick="showTaskDetail(tasks.find(x => x.id === ${t.id}))" style="cursor:pointer;">${t.title}</p>
         <div class="flex flex-wrap items-center gap-1.5 mt-1.5">
           ${rolePill(t.role)}${statusPill(t.status)}${priPill(t.priority)}
-          ${t.recurring ? `<span style="font-size:10px;color:#C05070;">🔁</span>` : ""}
+          ${t.recurring ? `<span style="font-size:10px;color:#C05070;"><i class="ph-bold ph-arrows-clockwise"></i></span>` : ""}
           ${t.due ? `<span class="text-[11px] font-mono ${overdue && !t.done ? "text-red-400 font-semibold" : "text-gray-300"}">${formatDate(t.due)}</span>` : ""}
         </div>
       </div>
@@ -1519,12 +1548,12 @@ function renderRoleTabs() {
             <button onclick="setSortDirection('${key}','asc')" id="sort-${key}-asc"
               title="Earliest first"
               style="padding:0.4rem 0.6rem;border-radius:0.75rem;font-size:0.9rem;cursor:pointer;transition:all 0.2s;background:white;color:#999;border:2px solid #FFD6E7;">
-              ↑
+              <i class="ph-bold ph-arrow-up"></i>
             </button>
             <button onclick="setSortDirection('${key}','desc')" id="sort-${key}-desc"
               title="Latest first"
               style="padding:0.4rem 0.6rem;border-radius:0.75rem;font-size:0.9rem;cursor:pointer;transition:all 0.2s;background:white;color:#999;border:2px solid #FFD6E7;">
-              ↓
+              <i class="ph-bold ph-arrow-down"></i>
             </button>
           </div>
         </div>
@@ -1559,7 +1588,7 @@ function renderSettingsModal() {
     })
     .join("");
   if (roles.length < 4)
-    html += `<button onclick="addRole()" style="width:100%;padding:0.75rem;background:#E6D6FF;border:2px solid #A888E0;border-radius:0.75rem;color:#6040A0;font-weight:600;cursor:pointer;margin-top:0.5rem;font-family:'DM Sans',sans-serif;">+ Add Role</button>`;
+    html += `<button onclick="addRole()" style="width:100%;padding:0.75rem;background:#E6D6FF;border:2px solid #A888E0;border-radius:0.75rem;color:#6040A0;font-weight:600;cursor:pointer;margin-top:0.5rem;font-family:'DM Sans',sans-serif;"><i class="ph-bold ph-plus"></i> Add Role</button>`;
   editor.innerHTML = html;
 }
 
@@ -1621,10 +1650,13 @@ function addRole() {
 }
 
 function openSettingsModal() {
-  const modal = document.getElementById("settings-modal-overlay");
+  const modal = document.getElementById('settings-modal-overlay');
   if (modal) {
     renderSettingsModal();
-    modal.classList.add("active");
+    // Pre-fill display name
+    const nameInput = document.getElementById('settings-display-name');
+    if (nameInput) nameInput.value = currentUser?.displayName || '';
+    modal.classList.add('active');
   }
 }
 
@@ -1634,17 +1666,14 @@ function closeSettingsModal(e) {
 }
 
 function switchSettingsTab(tab) {
-  // Update sidebar buttons
-  document.querySelectorAll(".settings-tab").forEach((btn) => {
-    btn.classList.remove("active");
+  document.querySelectorAll('.settings-tab').forEach(btn => {
+    btn.classList.remove('active');
   });
-  document.getElementById(`stab-${tab}`).classList.add("active");
+  document.getElementById(`stab-${tab}`).classList.add('active');
 
-  // Show/hide panels
-  document.getElementById("spanel-roles").style.display =
-    tab === "roles" ? "block" : "none";
-  document.getElementById("spanel-data").style.display =
-    tab === "data" ? "block" : "none";
+  document.getElementById('spanel-roles').style.display = tab === 'roles'   ? 'block' : 'none';
+  document.getElementById('spanel-data').style.display = tab === 'data'    ? 'block' : 'none';
+  document.getElementById('spanel-account').style.display = tab === 'account' ? 'block' : 'none';
 }
 
 // ─── Calendar ─────────────────────────────────────────────────────────────────

@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Moon DB</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
   <link
     href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap"
     rel="stylesheet" />
@@ -79,7 +80,7 @@
   <!-- ===== LOADING OVERLAY ===== -->
   <div id="loading-overlay" class="hidden"
     style="position:fixed;inset:0;background:rgba(255,247,250,0.85);z-index:200;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:1rem;">
-    <div style="font-size:2rem; animation: spin 1.5s linear infinite;">🌙</div>
+    <div style="font-size:2rem; animation: spin 1.5s linear infinite;"><i class="ph-bold ph-moon" style="font-size:1.1rem;color:#F0A0C0;"></i></div>
     <p style="font-size:0.875rem; color:#C08090; font-family:'DM Sans',sans-serif;">Loading your workspace...</p>
   </div>
   <style>
@@ -115,14 +116,13 @@
       </div>
       <div class="flex items-center gap-3">
         <button onclick="openSettingsModal()" class="text-sm text-pink-400 hover:text-pink-600 transition p-2"
-          title="Settings">⚙️</button>
+          title="Settings"><i class="ph-bold ph-gear"></i></button>
         <span id="today-label" class="text-xs text-pink-400 font-mono"></span>
         <!-- User info -->
         <div class="flex items-center gap-2 pl-3 border-l border-pink-100">
           <div id="user-avatar"></div>
           <span id="user-name"
-            class="text-xs text-pink-500 font-medium max-w-[120px] truncate cursor-pointer hover:text-pink-600 transition"
-            onclick="editDisplayName()" title="Click to edit"></span>
+            class="text-xs text-pink-500 font-medium max-w-[120px] truncate"></span>
           <button onclick="signOut()"
             style="font-size:0.7rem;padding:0.25rem 0.6rem;background:#FFE0E8;border:none;border-radius:0.5rem;color:#C05070;cursor:pointer;font-weight:500;font-family:'DM Sans',sans-serif;"
             onmouseover="this.style.background='#FFD0E0'" onmouseout="this.style.background='#FFE0E8'">
@@ -165,8 +165,8 @@
             </select>
             <select id="qf-status" title="Status"
               class="text-sm px-3 py-1.5 rounded-xl border border-pink-100 bg-white text-gray-700 outline-none focus:border-lavender-400 cursor-pointer">
-              <option>Backlog</option>
-              <option selected>In Progress</option>
+              <option selected>Backlog</option>
+              <option>In Progress</option>
               <option>Blocked</option>
             </select>
             <input id="qf-due" type="date" title="Due date"
@@ -174,7 +174,7 @@
             <label
               style="display:flex;align-items:center;gap:0.4rem;font-size:0.8rem;color:#C08090;cursor:pointer;padding:0.4rem 0.75rem;border:1px solid #FFD6E7;border-radius:0.75rem;background:white;white-space:nowrap;">
               <input type="checkbox" id="qf-recurring" style="accent-color:#F0A0C0;cursor:pointer;" />
-              🔁 Daily
+              <i class="ph-bold ph-arrows-clockwise"></i> Daily
             </label>
           </div>
           <div class="flex gap-2">
@@ -188,20 +188,15 @@
       </div>
 
       <!-- Metrics -->
-      <div class="grid grid-cols-3 gap-3 mb-4">
-        <div class="bg-pink-50 rounded-2xl p-4">
-          <p class="text-xs text-pink-400 mb-1">Total tasks</p>
-          <p id="m-total" class="text-2xl font-semibold text-pink-600">0</p>
-        </div>
-        <div class="bg-lavender-50 rounded-2xl p-4">
-          <p class="text-xs text-lavender-500 mb-1">In progress</p>
-          <p id="m-inprogress" class="text-2xl font-semibold text-lavender-600">0</p>
-        </div>
-        <div class="bg-red-50 rounded-2xl p-4">
-          <p class="text-xs text-red-400 mb-1">Blocked</p>
-          <p id="m-blocked" class="text-2xl font-semibold text-red-400">0</p>
-        </div>
+      <!-- Row 1 -->
+      <div class="grid grid-cols-3 gap-3 mb-3">
+        <div class="bg-pink-50 rounded-2xl p-4"><p class="text-xs text-pink-400 mb-1">Total tasks</p><p id="m-total" class="text-2xl font-semibold text-pink-600">0</p></div>
+        <div class="bg-lavender-50 rounded-2xl p-4"><p class="text-xs text-lavender-500 mb-1">Completed all time</p><p id="m-completed" class="text-2xl font-semibold text-lavender-600">0</p></div>
+        <div class="bg-red-50 rounded-2xl p-4"><p class="text-xs text-red-400 mb-1">Blocked</p><p id="m-blocked" class="text-2xl font-semibold text-red-400">0</p></div>
       </div>
+
+      <!-- Row 2: Per Role -->
+      <div id="m-roles" class="grid gap-3 mb-4"></div>
 
       <!-- Calendar -->
       <div class="calendar-wrapper mb-4">
@@ -244,11 +239,11 @@
             <div style="display:flex;gap:0.4rem;">
               <button onclick="showPomodoroFloat()" title="Pop out timer"
                 style="font-size:0.7rem;padding:0.25rem 0.6rem;background:#FFF0F5;border:1px solid #FFD6E7;border-radius:0.5rem;color:#C05070;cursor:pointer;font-family:'DM Sans',sans-serif;">
-                ↗ Float
+                <i class="ph-bold ph-arrow-square-out"></i> Float
               </button>
               <button onclick="launchPiP()" title="Always on top (Picture-in-Picture)"
                 style="font-size:0.7rem;padding:0.25rem 0.6rem;background:#E6D6FF;border:1px solid #CDB8F5;border-radius:0.5rem;color:#6040A0;cursor:pointer;font-family:'DM Sans',sans-serif;">
-                📌 Always on top
+                <i class="ph-bold ph-push-pin"></i> Pin
               </button>
             </div>
           </div>
@@ -349,7 +344,7 @@
                 class="px-3 py-1 text-xs bg-gray-100 text-gray-500 rounded-lg font-medium hover:bg-gray-200 transition">Cancel</button>
             </div>
           </div>
-          <button class="modal-close" onclick="closeTaskModal()">×</button>
+          <button class="modal-close" onclick="closeTaskModal()"><i class="ph-bold ph-x"></i></button>
         </div>
         <div class="modal-body">
           <div class="modal-section">
@@ -369,10 +364,10 @@
           </div>
         </div>
         <div class="modal-actions">
-          <button id="modal-undo-btn" class="modal-btn modal-btn-secondary hidden" onclick="markTaskUndone()">↩️
-            Undo</button>
+          <button id="modal-undo-btn" class="modal-btn modal-btn-secondary hidden" onclick="markTaskUndone()">
+            <i class="ph-bold ph-arrow-u-up-left"></i> Undo</button>
           <button id="modal-done-btn" class="modal-btn modal-btn-secondary" onclick="markTaskDone()">Mark Done</button>
-          <button class="modal-btn modal-btn-secondary" onclick="duplicateCurrentTask()">📋 Duplicate</button>
+          <button class="modal-btn modal-btn-secondary" onclick="duplicateCurrentTask()"><i class="ph-bold ph-copy"></i> Duplicate</button>
           <button class="modal-btn modal-btn-danger" onclick="deleteCurrentTask()">Delete</button>
           <button class="modal-btn modal-btn-primary" onclick="closeTaskModal()">Close</button>
         </div>
@@ -387,7 +382,7 @@
         <div
           style="display:flex;justify-content:space-between;align-items:center;padding:1.25rem 1.5rem;border-bottom:1px solid #FFF0F5;">
           <h2 class="modal-title" style="margin:0;">Settings</h2>
-          <button class="modal-close" onclick="closeSettingsModal()">×</button>
+          <button class="modal-close" onclick="closeSettingsModal()"><i class="ph-bold ph-x"></i></button>
         </div>
 
         <!-- Sidebar layout -->
@@ -397,11 +392,16 @@
           <div style="width:160px;flex-shrink:0;background:#FFF8FB;border-right:1px solid #FFE8F0;padding:1rem 0;">
             <button onclick="switchSettingsTab('roles')" id="stab-roles" class="settings-tab active"
               style="width:100%;text-align:left;padding:0.6rem 1.25rem;font-size:0.8rem;font-weight:500;border:none;cursor:pointer;background:transparent;color:#C05070;display:flex;align-items:center;gap:0.5rem;">
-              🎨 Roles
+              <i class="ph-bold ph-paint-brush"></i> Roles
             </button>
             <button onclick="switchSettingsTab('data')" id="stab-data" class="settings-tab"
               style="width:100%;text-align:left;padding:0.6rem 1.25rem;font-size:0.8rem;font-weight:500;border:none;cursor:pointer;background:transparent;color:#999;display:flex;align-items:center;gap:0.5rem;">
-              💾 Data
+              <i class="ph-bold ph-database"></i> Data
+            </button>
+            <button onclick="switchSettingsTab('account')" id="stab-account"
+              class="settings-tab"
+              style="width:100%;text-align:left;padding:0.6rem 1.25rem;font-size:0.8rem;font-weight:500;border:none;cursor:pointer;background:transparent;color:#999;display:flex;align-items:center;gap:0.5rem;">
+              <i class="ph-bold ph-user"></i> Account
             </button>
           </div>
 
@@ -424,7 +424,7 @@
                 <button onclick="exportData()"
                   style="width:100%;padding:0.875rem;background:#F5F0FF;border:1.5px solid #CDB8F5;border-radius:0.875rem;color:#6040A0;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;font-size:0.875rem;text-align:left;display:flex;align-items:center;gap:0.75rem;"
                   onmouseover="this.style.background='#EDE0FF'" onmouseout="this.style.background='#F5F0FF'">
-                  <span style="font-size:1.25rem;">📥</span>
+                  <span style="font-size:1.25rem;"><i class="ph-bold ph-download-simple" style="font-size:1.25rem;"></i></span>
                   <div>
                     <div>Export data</div>
                     <div style="font-size:0.72rem;font-weight:400;color:#9070C0;margin-top:1px;">Download a JSON backup
@@ -434,7 +434,7 @@
                 <button onclick="triggerImport()"
                   style="width:100%;padding:0.875rem;background:#F0FDF8;border:1.5px solid #88D8B8;border-radius:0.875rem;color:#207060;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;font-size:0.875rem;text-align:left;display:flex;align-items:center;gap:0.75rem;"
                   onmouseover="this.style.background='#E0F7F0'" onmouseout="this.style.background='#F0FDF8'">
-                  <span style="font-size:1.25rem;">📤</span>
+                  <span style="font-size:1.25rem;"><i class="ph-bold ph-upload-simple" style="font-size:1.25rem;"></i></span>
                   <div>
                     <div>Import data</div>
                     <div style="font-size:0.72rem;font-weight:400;color:#409070;margin-top:1px;">Restore from a
@@ -443,6 +443,28 @@
                 </button>
               </div>
               <input type="file" id="import-file" accept=".json" style="display:none;" onchange="importData(event)" />
+            </div>
+
+            <!-- Account panel -->
+            <div id="spanel-account" style="display:none;">
+              <p class="text-xs font-semibold text-pink-400 uppercase tracking-widest mb-1">Account</p>
+              <p style="font-size:0.78rem;color:#bbb;margin-bottom:1.5rem;">Manage your display name</p>
+              <div style="display:flex;flex-direction:column;gap:0.75rem;">
+                <div>
+                  <label style="font-size:0.75rem;font-weight:600;color:#F0A0C0;text-transform:uppercase;letter-spacing:0.08em;display:block;margin-bottom:0.5rem;">Display Name</label>
+                  <div style="display:flex;gap:0.5rem;">
+                    <input id="settings-display-name" type="text" maxlength="30"
+                      style="flex:1;padding:0.5rem 0.75rem;border:1.5px solid #FFD6E7;border-radius:0.75rem;font-size:0.875rem;font-family:'DM Sans',sans-serif;outline:none;color:#444;"
+                      onfocus="this.style.borderColor='#A888E0'"
+                      onblur="this.style.borderColor='#FFD6E7'" />
+                    <button onclick="saveDisplayNameFromSettings()"
+                      style="padding:0.5rem 1rem;background:#E6D6FF;border:1.5px solid #CDB8F5;border-radius:0.75rem;color:#6040A0;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;font-size:0.875rem;"
+                      onmouseover="this.style.background='#D6C6F0'" onmouseout="this.style.background='#E6D6FF'">
+                      Save
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
 
           </div>
@@ -470,7 +492,7 @@
   cursor: grab; user-select: none;
   min-width: 200px;
   ">
-    <span style="font-size:1rem;">🌙</span>
+    <span style="font-size:1rem;"><i class="ph-bold ph-moon" style="font-size:1.1rem;color:#F0A0C0;"></i></span>
     <div style="display:flex;flex-direction:column;gap:0.1rem;">
       <span id="pomo-float-label"
         style="font-size:0.65rem;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:#F0A0C0;">Focus
@@ -489,7 +511,7 @@
       </button>
     </div>
     <button onclick="hidePomodoroFloat()"
-      style="background:none;border:none;color:#F0A0C0;cursor:pointer;font-size:1rem;padding:0;line-height:1;">×</button>
+      style="background:none;border:none;color:#F0A0C0;cursor:pointer;font-size:1rem;padding:0;line-height:1;"><i class="ph-bold ph-x"></i></button>
   </div>
 
   <script src="scripts.js"></script>
