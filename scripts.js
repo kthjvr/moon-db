@@ -201,6 +201,17 @@ const SAMPLE_TASKS = [
   },
 ];
 
+const PET_TYPES      = ['cat', 'dog', 'dinosaur', 'frog', 'bunny', 'chicken'];
+const PET_XP_STAGES  = {
+  egg:      5,
+  hatched:  10,
+  baby:     20,
+  toddler:  35,
+  teen:     50,
+};
+const PET_STAGE_ORDER = ['egg', 'hatched', 'baby', 'toddler', 'teen', 'adult'];
+const TASK_XP = { High: 3, Medium: 2, Low: 1 };
+
 // ─── State ──────────────────────────────────────────────────────────────────
 /** @type {Task[]} */ let tasks = [];
 let nextId = 200;
@@ -228,6 +239,17 @@ let pomoHistory = {};
 
 let quickTitle = "";
 let isEditingTaskTitle = false;
+
+// ─── Pet State ───────────────────────────────────────────────────────────────
+let pet = {
+  stage:     'egg',      // egg → hatched → baby → toddler → teen → adult
+  xp:        0,
+  type:      null,       // cat, dog, dinosaur, frog, bunny, chicken
+  name:      'My Pet',
+  xpToNext:  5,
+};
+let petFamily = [];
+let petGame = null;
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 function todayISO() {
@@ -450,6 +472,8 @@ async function loadFromFirestore() {
       tomatoDate = todayISO();
       // Load pomo history
       pomoHistory = data.pomoHistory || {};
+      pet       = data.pet       || { stage:'egg', xp:0, type:null, name:'My Pet', xpToNext:5 };
+      petFamily = data.petFamily || [];
       const noteEl = document.getElementById("notepad");
       if (noteEl) noteEl.value = data.note || "";
     } else {
@@ -508,6 +532,7 @@ async function saveToFirestore() {
       tomatoCount,
       tomatoDate,
       pomoHistory, // persist history
+      pet, petFamily,
       note: noteEl ? noteEl.value : "",
       displayName: currentUser.displayName || "",
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -841,10 +866,16 @@ function handleDrop(e) {
 function toggleDone(id) {
   const t = tasks.find((x) => x.id === id);
   if (t) {
+    const wasAlreadyDone = t.done; // ← capture before toggling
     t.done = !t.done;
     t.status = t.done ? "Done" : t.recurring ? "In Progress" : "Backlog";
-    // Track the date it was completed so we can reset it tomorrow
     t.doneDate = t.done ? todayISO() : "";
+
+    // ── Pet XP — only gain when marking AS done, not undoing ──
+    if (!wasAlreadyDone && t.done && pet.stage !== 'adult') {
+      const xpGain = TASK_XP[t.priority] || 1;
+      gainPetXP(xpGain);
+    }
   }
   saveData();
   render();
@@ -1009,6 +1040,7 @@ function render() {
     renderRoleSnapshot();
     updateCalendarEvents();
     renderAnalyticsChart();
+    renderPetWidget();
   } else if (activeTab === "all") {
     renderKanban(null, "kanban-all", dateFilters.all || "all");
   } else {
@@ -1865,9 +1897,17 @@ function closeTaskModal(e) {
 
 function markTaskDone() {
   const task = window.currentModalTask;
-  if (task) {
-    task.done = true;
-    task.status = "Done";
+  if (task && !task.done) {
+    task.done   = true;
+    task.status = 'Done';
+    task.doneDate = todayISO();
+
+    // ── Pet XP ──
+    if (pet.stage !== 'adult') {
+      const xpGain = TASK_XP[task.priority] || 1;
+      gainPetXP(xpGain);
+    }
+
     saveData();
     render();
     closeTaskModal();
@@ -2080,175 +2120,257 @@ function setAnalyticsFilter(filter) {
   renderAnalyticsChart();
 }
 
-// ─── Init ─────────────────────────────────────────────────────────────────────
-(function init() {
-  // ── DEV MODE: skip auth when running locally ──────────────────────────
-  const isLocal =
-    location.hostname === "localhost" ||
-    location.hostname === "127.0.0.1" ||
-    location.hostname === "";
+// ─── Pet XP & Evolution ──────────────────────────────────────────────────────
+function gainPetXP(amount) {
+  if (pet.stage === 'adult') return;
+  pet.xp += amount;
 
-  if (isLocal) {
-    console.log("🌙 Dev mode — skipping auth");
-    // Mock a fake user
-    currentUser = {
-      uid: "dev-user",
-      displayName: "Dev User",
-      email: "dev@moondb.local",
-      photoURL: null,
-      updateProfile: () => Promise.resolve(),
-    };
-    updateUserDisplay(currentUser);
-    showAppScreen();
-
-    const todayEl = document.getElementById("today-label");
-    if (todayEl)
-      todayEl.textContent = new Date().toLocaleDateString("en-US", {
-        weekday: "short",
-        month: "short",
-        day: "numeric",
-      });
-
-    // Load from localStorage instead of Firestore in dev
-    loadFromLocalStorage();
-    renderNavTabs();
-    renderRoleTabs();
-    updateRoleSelect();
-    render();
-    updatePomoDisplay();
-    updateTomatoDisplay();
-    setTimeout(() => {
-      initCalendar();
-    }, 100);
-    setTimeout(() => {
-      renderAnalyticsChart();
-    }, 150);
-    renderCalendarRoleFilter();
-
-    const notepad = document.getElementById("notepad");
-    if (notepad) {
-      let noteTimer = 0;
-      notepad.addEventListener("input", () => {
-        clearTimeout(noteTimer);
-        noteTimer = setTimeout(saveNote, 800);
-      });
-    }
-    return; // skip the auth listener below
+  // Check evolution
+  const xpNeeded = PET_XP_STAGES[pet.stage];
+  if (pet.xp >= xpNeeded) {
+    pet.xp = 0;
+    evolvePet();
   }
 
-  // ── PRODUCTION: normal Firebase auth ─────────────────────────────────
-  auth.onAuthStateChanged(async (user) => {
-    if (user) {
-      currentUser = user;
-      updateUserDisplay(user);
-      showAppScreen();
+  saveData();
+  renderPetWidget();
+}
 
-      const todayEl = document.getElementById("today-label");
-      if (todayEl)
-        todayEl.textContent = new Date().toLocaleDateString("en-US", {
-          weekday: "short",
-          month: "short",
-          day: "numeric",
-        });
+function evolvePet() {
+  const currentIndex = PET_STAGE_ORDER.indexOf(pet.stage);
+  const nextStage    = PET_STAGE_ORDER[currentIndex + 1];
 
-      await loadFromFirestore();
-      renderNavTabs();
-      renderRoleTabs();
-      updateRoleSelect();
-      render();
-      updatePomoDisplay();
-      updateTomatoDisplay();
-      setTimeout(() => {
-        initCalendar();
-      }, 100);
-      setTimeout(() => {
-        renderAnalyticsChart();
-      }, 150);
-      renderCalendarRoleFilter();
+  if (pet.stage === 'egg') {
+    pet.type = PET_TYPES[Math.floor(Math.random() * PET_TYPES.length)];
+  }
 
-      const notepad = document.getElementById("notepad");
-      if (notepad) {
-        let noteTimer = 0;
-        notepad.addEventListener("input", () => {
-          clearTimeout(noteTimer);
-          noteTimer = setTimeout(saveNote, 800);
-        });
+  pet.stage    = nextStage;
+  pet.xpToNext = PET_XP_STAGES[nextStage] || 0;
+
+  if (nextStage === 'adult') {
+    petFamily.push({
+      type:        pet.type,
+      name:        pet.name,
+      graduatedAt: todayISO(),
+    });
+    setTimeout(() => {
+      alert(`🎉 ${pet.name} the ${pet.type} is now an adult! They've joined your pet family. A new egg is waiting...`);
+      pet = { stage:'egg', xp:0, type:null, name:'My Pet', xpToNext:5 };
+      saveData();
+      renderPetWidget();
+      initPetGarden(); // ← only restart garden on evolution
+    }, 500);
+  } else {
+    initPetGarden(); // ← restart garden on every other evolution too
+  }
+}
+
+function renderPetWidget() {
+  const xpNeeded = PET_XP_STAGES[pet.stage] || 1;
+  const pct      = Math.min((pet.xp / xpNeeded) * 100, 100);
+  const fill     = document.getElementById('pet-xp-fill');
+  const xpText   = document.getElementById('pet-xp-text');
+  const nameEl   = document.getElementById('pet-name');
+  const stageEl  = document.getElementById('pet-stage');
+  if (fill)    fill.style.width   = pct + '%';
+  if (xpText)  xpText.textContent = `${pet.xp} / ${xpNeeded} XP`;
+  if (nameEl)  nameEl.textContent = pet.name;
+  if (stageEl) stageEl.textContent = pet.stage.charAt(0).toUpperCase() + pet.stage.slice(1);
+}
+
+// ─── Pet Garden Phaser Scene ─────────────────────────────────
+
+class GardenScene extends Phaser.Scene {
+  constructor() {
+    super('GardenScene');
+    this.petBody    = null;
+    this.petImg     = null;
+    this.petDirection = 1;
+    this.moveTimer  = 0;
+  }
+
+  preload() {
+    // Still load egg and hatched as images (they're static)
+    this.load.image('pet-egg',     'https://ik.imagekit.io/e3wiv79bq/Assets-DP/Sprites/egg1.gif');
+    this.load.image('pet-hatched', 'https://ik.imagekit.io/e3wiv79bq/Assets-DP/Sprites/hatched.gif');
+  }
+
+  create() {
+    const W = this.scale.width;
+    const H = this.scale.height;
+
+    // Background
+    this.add.rectangle(W/2, H/2, W, H, 0xfff7fa);
+
+    // Grass
+    this.add.rectangle(W/2, H - 15, W, 30, 0xd8f5c0);
+
+    // Decorations
+    this.add.text(30,  H - 35, '🌸', { fontSize: '14px' });
+    this.add.text(W - 60, H - 35, '🌿', { fontSize: '14px' });
+    this.add.text(W/2 - 20, H - 38, '🍀', { fontSize: '12px' });
+
+    const stage = pet.stage;
+
+    if (stage === 'egg' || stage === 'hatched') {
+      // Use Phaser sprite for static stages
+      const key = stage === 'egg' ? 'pet-egg' : 'pet-hatched';
+      const scale = stage === 'egg' ? 0.8 : 0.6;
+      this.petBody = this.physics.add.sprite(W/2, H - 45, key);
+      this.petBody.setScale(scale);
+      this.petBody.setCollideWorldBounds(true);
+      this.physics.world.setBounds(20, 0, W - 40, H);
+
+      if (stage === 'egg') {
+        this.startEggWiggle();
+      } else {
+        this.startWalking();
       }
     } else {
-      currentUser = null;
-      showLoginScreen();
+      // For grown stages — use HTML img overlay so GIF animates while moving
+      this.createGifPet(W, H);
     }
-  });
-})();
-
-function loadFromLocalStorage() {
-  try {
-    const raw = localStorage.getItem("moondb_dev");
-    if (raw) {
-      const d = JSON.parse(raw);
-      tasks = d.tasks || [...SAMPLE_TASKS];
-      nextId = d.nextId || 200;
-      roles = d.roles || [...DEFAULT_ROLES];
-      roleColorMap = d.roleColorMap || {};
-      pomoHistory = d.pomoHistory || {};
-      tomatoCount = d.tomatoDate === todayISO() ? d.tomatoCount || 0 : 0;
-      tomatoDate = todayISO();
-      const noteEl = document.getElementById("notepad");
-      if (noteEl) noteEl.value = d.note || "";
-    } else {
-      tasks = [...SAMPLE_TASKS];
-      nextId = 200;
-      roles = [...DEFAULT_ROLES];
-    }
-  } catch (_) {
-    tasks = [...SAMPLE_TASKS];
   }
 
-  roles.forEach((r, i) => {
-    if (!roleColorMap[r])
-      roleColorMap[r] = ROLE_COLORS[i % ROLE_COLORS.length].id;
-  });
-  dateFilters = { all: "all" };
-  roles.forEach((r) => {
-    dateFilters[r.toLowerCase().replace(/\s+/g, "_")] = "all";
-  });
+  createGifPet(W, H) {
+    const scaleMap = {
+      baby: 55, toddler: 65, teen: 75, adult: 85,
+    };
+    const size = scaleMap[pet.stage] || 60;
 
-  // Auto-move tasks due today from Backlog → In Progress
-  tasks.forEach((t) => {
-    if (!t.done && t.due === todayISO() && t.status === "Backlog") {
-      t.status = "In Progress";
+    // Create invisible physics rectangle to drive movement
+    this.petBody = this.physics.add.image(W/2, H - 45, '__DEFAULT');
+    this.petBody.setVisible(false);
+    this.petBody.setDisplaySize(size, size);
+    this.petBody.setCollideWorldBounds(true);
+    this.physics.world.setBounds(20, 0, W - 40, H);
+
+    // Create real HTML img on top of canvas
+    const canvas = document.querySelector('#pet-garden canvas');
+    if (!canvas) return;
+
+    const img = document.createElement('img');
+    img.src = 'https://ik.imagekit.io/e3wiv79bq/Assets-DP/Sprites/RabbitGif.gif';
+    img.style.cssText = `
+      position: absolute;
+      width: ${size}px;
+      height: ${size}px;
+      image-rendering: pixelated;
+      pointer-events: none;
+      transform-origin: center;
+    `;
+
+    // Position relative to garden container
+    const container = document.getElementById('pet-garden');
+    container.style.position = 'relative';
+    container.appendChild(img);
+    this.petImg = img;
+
+    this.startWalking();
+  }
+
+  startEggWiggle() {
+    this.tweens.add({
+      targets:  this.petBody,
+      angle:    { from: -8, to: 8 },
+      duration: 400,
+      ease:     'Sine.easeInOut',
+      yoyo:     true,
+      repeat:   -1,
+    });
+  }
+
+  startWalking() {
+    const speed = Phaser.Math.Between(25, 50);
+    if (this.petBody) this.petBody.setVelocityX(speed * this.petDirection);
+  }
+
+  update(time) {
+    if (!this.petBody) return;
+
+    const vx = this.petBody.body?.velocity?.x ?? 0;
+
+    // Flip direction at walls
+    if (this.petBody.body) {
+      if (this.petBody.x <= 25)  this.petDirection =  1;
+      if (this.petBody.x >= this.scale.width - 25) this.petDirection = -1;
     }
+
+    // Sync HTML img position with physics body
+    if (this.petImg) {
+      const canvas  = document.querySelector('#pet-garden canvas');
+      if (canvas) {
+        const scaleX  = canvas.offsetWidth  / this.scale.width;
+        const scaleY  = canvas.offsetHeight / this.scale.height;
+        const size    = parseInt(this.petImg.style.width);
+        this.petImg.style.left      = (this.petBody.x * scaleX - size / 2) + 'px';
+        this.petImg.style.top       = (this.petBody.y * scaleY - size / 2) + 'px';
+        this.petImg.style.transform = vx < 0 ? 'scaleX(-1)' : 'scaleX(1)';
+      }
+    } else if (this.petBody.body) {
+      // Phaser sprite flip for egg/hatched
+      if (vx < 0) this.petBody.flipX = true;
+      if (vx > 0) this.petBody.flipX = false;
+    }
+
+    if (pet.stage !== 'egg' && time > this.moveTimer) {
+      this.randomBehavior(time);
+    }
+  }
+
+  randomBehavior(time) {
+    const action = Phaser.Math.Between(0, 3);
+
+    if (action === 0) {
+      if (this.petBody) this.petBody.setVelocityX(0);
+      this.moveTimer = time + Phaser.Math.Between(1500, 3500);
+      return;
+    }
+
+    if (Math.random() > 0.4) this.petDirection *= -1;
+    this.startWalking();
+    this.moveTimer = time + Phaser.Math.Between(2000, 4000);
+  }
+
+  shutdown() {
+    // Clean up HTML img when scene restarts
+    if (this.petImg && this.petImg.parentNode) {
+      this.petImg.parentNode.removeChild(this.petImg);
+      this.petImg = null;
+    }
+  }
+}
+
+function initPetGarden() {
+  if (petGame) {
+    petGame.destroy(true);
+  }
+
+  petGame = new Phaser.Game({
+    type: Phaser.AUTO,
+
+    parent: 'pet-garden',
+
+    width: 400,
+    height: 200,
+
+    transparent: true,
+
+    physics: {
+      default: 'arcade',
+      arcade: {
+        gravity: { y: 0 },
+        debug: false,
+      },
+    },
+
+    scene: [GardenScene],
+
+    scale: {
+      mode: Phaser.Scale.FIT,
+      autoCenter: Phaser.Scale.CENTER_BOTH,
+    },
   });
-  saveToLocalStorage();
-}
-
-function saveToLocalStorage() {
-  const noteEl = document.getElementById("notepad");
-  try {
-    localStorage.setItem(
-      "moondb_dev",
-      JSON.stringify({
-        tasks,
-        nextId,
-        roles,
-        roleColorMap,
-        pomoHistory,
-        tomatoCount,
-        tomatoDate,
-        note: noteEl ? noteEl.value : "",
-      }),
-    );
-  } catch (_) {}
-}
-
-function saveData() {
-  const isLocal =
-    location.hostname === "localhost" ||
-    location.hostname === "127.0.0.1" ||
-    location.hostname === "";
-  if (isLocal) saveToLocalStorage();
-  else saveToFirestore();
-  if (activeTab === "overview") updateCalendarEvents();
 }
 
 // ─── Import/Export ────────────────────────────────────────────────────────────
@@ -2328,4 +2450,180 @@ async function importData(event) {
   };
   reader.readAsText(file);
   event.target.value = "";
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+(function init() {
+  // ── DEV MODE: skip auth when running locally ──────────────────────────
+  const isLocal =
+    location.hostname === "localhost" ||
+    location.hostname === "127.0.0.1" ||
+    location.hostname === "";
+
+  if (isLocal) {
+    console.log("🌙 Dev mode — skipping auth");
+    // Mock a fake user
+    currentUser = {
+      uid: "dev-user",
+      displayName: "Dev User",
+      email: "dev@moondb.local",
+      photoURL: null,
+      updateProfile: () => Promise.resolve(),
+    };
+    updateUserDisplay(currentUser);
+    showAppScreen();
+
+    const todayEl = document.getElementById("today-label");
+    if (todayEl)
+      todayEl.textContent = new Date().toLocaleDateString("en-US", {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+      });
+
+    // Load from localStorage instead of Firestore in dev
+    loadFromLocalStorage();
+    renderNavTabs();
+    renderRoleTabs();
+    updateRoleSelect();
+    render();
+    initPetGarden();
+    updatePomoDisplay();
+    updateTomatoDisplay();
+    setTimeout(() => {
+      initCalendar();
+    }, 100);
+    setTimeout(() => {
+      renderAnalyticsChart();
+    }, 150);
+    renderCalendarRoleFilter();
+
+    const notepad = document.getElementById("notepad");
+    if (notepad) {
+      let noteTimer = 0;
+      notepad.addEventListener("input", () => {
+        clearTimeout(noteTimer);
+        noteTimer = setTimeout(saveNote, 800);
+      });
+    }
+    return; // skip the auth listener below
+  }
+
+  // ── PRODUCTION: normal Firebase auth ─────────────────────────────────
+  auth.onAuthStateChanged(async (user) => {
+    if (user) {
+      currentUser = user;
+      updateUserDisplay(user);
+      showAppScreen();
+
+      const todayEl = document.getElementById("today-label");
+      if (todayEl)
+        todayEl.textContent = new Date().toLocaleDateString("en-US", {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+        });
+
+      await loadFromFirestore();
+      renderNavTabs();
+      renderRoleTabs();
+      updateRoleSelect();
+      render();
+      initPetGarden();
+      updatePomoDisplay();
+      updateTomatoDisplay();
+      setTimeout(() => {
+        initCalendar();
+      }, 100);
+      setTimeout(() => {
+        renderAnalyticsChart();
+      }, 150);
+      renderCalendarRoleFilter();
+
+      const notepad = document.getElementById("notepad");
+      if (notepad) {
+        let noteTimer = 0;
+        notepad.addEventListener("input", () => {
+          clearTimeout(noteTimer);
+          noteTimer = setTimeout(saveNote, 800);
+        });
+      }
+    } else {
+      currentUser = null;
+      showLoginScreen();
+    }
+  });
+})();
+
+function loadFromLocalStorage() {
+  try {
+    const raw = localStorage.getItem("moondb_dev");
+    if (raw) {
+      const d = JSON.parse(raw);
+      tasks = d.tasks || [...SAMPLE_TASKS];
+      nextId = d.nextId || 200;
+      roles = d.roles || [...DEFAULT_ROLES];
+      roleColorMap = d.roleColorMap || {};
+      pomoHistory = d.pomoHistory || {};
+      tomatoCount = d.tomatoDate === todayISO() ? d.tomatoCount || 0 : 0;
+      tomatoDate = todayISO();
+      pet       = d.pet       || { stage:'egg', xp:0, type:null, name:'My Pet', xpToNext:5 };
+      petFamily = d.petFamily || [];
+      const noteEl = document.getElementById("notepad");
+      if (noteEl) noteEl.value = d.note || "";
+    } else {
+      tasks = [...SAMPLE_TASKS];
+      nextId = 200;
+      roles = [...DEFAULT_ROLES];
+    }
+  } catch (_) {
+    tasks = [...SAMPLE_TASKS];
+  }
+
+  roles.forEach((r, i) => {
+    if (!roleColorMap[r])
+      roleColorMap[r] = ROLE_COLORS[i % ROLE_COLORS.length].id;
+  });
+  dateFilters = { all: "all" };
+  roles.forEach((r) => {
+    dateFilters[r.toLowerCase().replace(/\s+/g, "_")] = "all";
+  });
+
+  // Auto-move tasks due today from Backlog → In Progress
+  tasks.forEach((t) => {
+    if (!t.done && t.due === todayISO() && t.status === "Backlog") {
+      t.status = "In Progress";
+    }
+  });
+  saveToLocalStorage();
+}
+
+function saveToLocalStorage() {
+  const noteEl = document.getElementById("notepad");
+  try {
+    localStorage.setItem(
+      "moondb_dev",
+      JSON.stringify({
+        tasks,
+        nextId,
+        roles,
+        roleColorMap,
+        pomoHistory,
+        tomatoCount,
+        tomatoDate,
+        pet, petFamily,
+        note: noteEl ? noteEl.value : "",
+      }),
+    );
+  } catch (_) {}
+}
+
+function saveData() {
+  const isLocal =
+    location.hostname === "localhost" ||
+    location.hostname === "127.0.0.1" ||
+    location.hostname === "";
+  if (isLocal) saveToLocalStorage();
+  else saveToFirestore();
+  if (activeTab === "overview") updateCalendarEvents();
 }

@@ -20,7 +20,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
   <script>
     tailwind.config = {
       theme: {
@@ -183,6 +183,31 @@
               task</button>
             <button onclick="cancelQuick()"
               class="px-3 py-1.5 text-sm text-gray-400 hover:text-gray-600 rounded-xl border border-gray-100 transition">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pet Garden Widget -->
+      <div class="pet-widget">
+        <div class="pet-widget-header">
+          <span>🌿 Pet Garden</span>
+          <button class="pet-family-btn">Family</button>
+        </div>
+
+        <div id="pet-garden"></div>
+
+        <div class="pet-widget-footer">
+          <div>
+            <p id="pet-name">My Pet</p>
+            <span id="pet-stage">Egg</span>
+          </div>
+
+          <div class="pet-xp-wrap">
+            <div class="pet-xp-bar">
+              <div id="pet-xp-fill"></div>
+            </div>
+
+            <span id="pet-xp-text">0 / 5 XP</span>
           </div>
         </div>
       </div>
