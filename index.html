@@ -258,6 +258,17 @@
                 class="absolute inset-0 flex items-center justify-center text-base font-semibold font-mono text-pink-600">25:00</span>
             </div>
             <p id="pomo-mode-label" class="text-xs text-pink-400 mb-3">Focus session</p>
+            <!-- Role selector for pomo session -->
+            <div id="pomo-role-wrap" style="margin-bottom:0.75rem;">
+              <label style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#F0A0C0;display:block;margin-bottom:0.35rem;">
+                Session Role
+              </label>
+              <select id="pomo-role-select"
+                onchange="pomoRole = this.value || null"
+                style="width:100%;padding:0.5rem 0.75rem;border:1.5px solid #FFD6E7;border-radius:0.75rem;font-size:0.85rem;font-family:'DM Sans',sans-serif;color:#802840;background:#FFF7FA;outline:none;cursor:pointer;">
+                <option value="">— No role —</option>
+              </select>
+            </div>
             <div class="flex gap-2">
               <button id="pomo-start-btn" onclick="pomoToggle()"
                 class="px-3 py-1.5 text-xs font-medium bg-pink-200 hover:bg-pink-300 text-pink-700 rounded-xl transition">Start</button>

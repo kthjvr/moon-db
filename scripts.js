@@ -136,6 +136,63 @@ const ROLE_COLORS = [
   },
 ];
 
+// ─── Helpers ────────────────────────────────────────────────────────────────
+function todayISO() {
+  return new Date().toISOString().split("T")[0];
+}
+
+function offsetDate(days) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().split("T")[0];
+}
+
+function formatDate(iso) {
+  if (!iso) return "";
+  const t = todayISO();
+  if (iso === t) return "Today";
+  const diff = Math.round(
+    (new Date(iso + "T00:00:00") - new Date(t + "T00:00:00")) / 86400000,
+  );
+  if (diff === 1) return "Tomorrow";
+  if (diff === -1) return "Yesterday";
+  if (diff < 0) return `${Math.abs(diff)}d overdue`;
+  return new Date(iso + "T00:00:00").toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function isUrgent(t) {
+  if (t.done) return false;
+  if (!t.due) return t.priority === "High";
+  return t.due <= todayISO();
+}
+
+function fmtSeconds(s) {
+  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+}
+
+function matchesDateFilter(t, filter) {
+  if (filter === "all" || !t.due) return true;
+  const today = new Date(todayISO()),
+    due = new Date(t.due);
+  if (filter === "today") return t.due === todayISO();
+  if (filter === "week") {
+    const e = new Date(today);
+    e.setDate(today.getDate() + 7);
+    return due >= today && due <= e;
+  }
+  if (filter === "month") {
+    const e = new Date(today);
+    e.setMonth(today.getMonth() + 1);
+    return due >= today && due <= e;
+  }
+  return true;
+}
+
+// ─── Sample data ──────────────────────────────────────────────────────────────
+
 // Generic task placeholders
 /** @type {Task[]} */
 const SAMPLE_TASKS = [
@@ -201,6 +258,17 @@ const SAMPLE_TASKS = [
   },
 ];
 
+/** @type {Record<string, { total: number, roles: Record<string, number> }>} */
+const SAMPLE_POMO_HISTORY = {
+  [offsetDate(-6)]: { total: 3, roles: { "Role 1": 2, "Role 2": 1 } },
+  [offsetDate(-5)]: { total: 5, roles: { "Role 1": 1, "Role 2": 2, "Role 3": 2 } },
+  [offsetDate(-4)]: { total: 2, roles: { "Role 3": 2 } },
+  [offsetDate(-3)]: { total: 6, roles: { "Role 1": 3, "Role 2": 1, "Role 3": 2 } },
+  [offsetDate(-2)]: { total: 4, roles: { "Role 2": 2, "Role 3": 2 } },
+  [offsetDate(-1)]: { total: 7, roles: { "Role 1": 4, "Role 2": 2, "Role 3": 1 } },
+  [todayISO()]:     { total: 2, roles: { "Role 1": 1, "Role 3": 1 } },
+};
+
 // ─── State ──────────────────────────────────────────────────────────────────
 /** @type {Task[]} */ let tasks = [];
 let nextId = 200;
@@ -216,6 +284,7 @@ let calendar = null;
 let analyticsFilter = "today";
 let calendarRoleFilter = "all"; // 'all'
 
+let pomoRole = null;
 let pomoMode = "focus";
 let pomoRunning = false;
 let pomoSeconds = POMO_DURATIONS.focus;
@@ -228,61 +297,6 @@ let pomoHistory = {};
 
 let quickTitle = "";
 let isEditingTaskTitle = false;
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
-function todayISO() {
-  return new Date().toISOString().split("T")[0];
-}
-
-function offsetDate(days) {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString().split("T")[0];
-}
-
-function formatDate(iso) {
-  if (!iso) return "";
-  const t = todayISO();
-  if (iso === t) return "Today";
-  const diff = Math.round(
-    (new Date(iso + "T00:00:00") - new Date(t + "T00:00:00")) / 86400000,
-  );
-  if (diff === 1) return "Tomorrow";
-  if (diff === -1) return "Yesterday";
-  if (diff < 0) return `${Math.abs(diff)}d overdue`;
-  return new Date(iso + "T00:00:00").toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function isUrgent(t) {
-  if (t.done) return false;
-  if (!t.due) return t.priority === "High";
-  return t.due <= todayISO();
-}
-
-function fmtSeconds(s) {
-  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
-}
-
-function matchesDateFilter(t, filter) {
-  if (filter === "all" || !t.due) return true;
-  const today = new Date(todayISO()),
-    due = new Date(t.due);
-  if (filter === "today") return t.due === todayISO();
-  if (filter === "week") {
-    const e = new Date(today);
-    e.setDate(today.getDate() + 7);
-    return due >= today && due <= e;
-  }
-  if (filter === "month") {
-    const e = new Date(today);
-    e.setMonth(today.getMonth() + 1);
-    return due >= today && due <= e;
-  }
-  return true;
-}
 
 // ─── Auth helpers ────────────────────────────────────────────────────────────
 function signInWithGoogle() {
@@ -448,14 +462,14 @@ async function loadFromFirestore() {
       roleColorMap = data.roleColorMap || {};
       tomatoCount = data.tomatoDate === todayISO() ? data.tomatoCount || 0 : 0;
       tomatoDate = todayISO();
-      // Load pomo history
-      pomoHistory = data.pomoHistory || {};
+      pomoHistory = data.pomoHistory || { ...SAMPLE_POMO_HISTORY };
       const noteEl = document.getElementById("notepad");
       if (noteEl) noteEl.value = data.note || "";
     } else {
       tasks = [...SAMPLE_TASKS];
       nextId = 200;
       roles = [...DEFAULT_ROLES];
+      pomoHistory = { ...SAMPLE_POMO_HISTORY };
       await saveToFirestore();
     }
   } catch (err) {
@@ -511,7 +525,7 @@ async function saveToFirestore() {
       note: noteEl ? noteEl.value : "",
       displayName: currentUser.displayName || "",
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-    });
+    }, { merge: true });
   } catch (err) {
     console.error("Error saving to Firestore:", err);
   }
@@ -545,9 +559,20 @@ async function saveNote() {
 }
 
 function saveTomatoCount() {
-  if (!currentUser) return;
-  // Record this date's count in history every time it changes
-  pomoHistory[tomatoDate] = tomatoCount;
+  const existing = pomoHistory[tomatoDate]; // Build today's history entry
+  const base = (existing && typeof existing === "object") // Handle legacy format (plain number)
+    ? existing
+    : { total: (typeof existing === "number" ? existing : 0), roles: {} };
+
+  const updated = {
+    total: tomatoCount,
+    roles: { ...base.roles }
+  };
+  if (pomoRole) {
+    updated.roles[pomoRole] = (updated.roles[pomoRole] || 0) + 1;
+  }
+  pomoHistory[tomatoDate] = updated;
+
   userDoc()
     .update({ tomatoCount, tomatoDate, pomoHistory })
     .catch(() => saveToFirestore());
@@ -899,6 +924,7 @@ function quickAdd() {
   quickTitle = input.value.trim();
   if (!quickTitle) return;
   updateRoleSelect();
+  updatePomoRoleSelect();
   document.getElementById("quick-form").classList.remove("hidden");
   /** @type {HTMLInputElement} */ (document.getElementById("qf-due")).value =
     todayISO();
@@ -907,6 +933,31 @@ function quickAdd() {
 function updateRoleSelect() {
   const sel = document.getElementById("qf-role");
   if (sel) sel.innerHTML = roles.map((r) => `<option>${r}</option>`).join("");
+}
+
+function updatePomoRoleSelect() {
+  const menu = document.getElementById("pomo-dropdown-menu");
+  if (!menu) return;
+
+  // Keep pomoRole in sync if role was renamed/deleted
+  if (pomoRole && !roles.includes(pomoRole)) pomoRole = null;
+
+  menu.innerHTML = `<div class="pomo-dropdown-option ${!pomoRole ? "selected" : ""}" onclick="selectPomoRole('', this)">— No role —</div>` +
+    roles.map(r => `<div class="pomo-dropdown-option ${r === pomoRole ? "selected" : ""}" onclick="selectPomoRole('${r}', this)">${r}</div>`).join("");
+}
+
+function selectPomoRole(role, el) {
+  pomoRole = role || null;
+  document.getElementById("pomo-role-label").textContent = role || "— No role —";
+  document.querySelectorAll(".pomo-dropdown-option").forEach(o => o.classList.remove("selected"));
+  el.classList.add("selected");
+  togglePomoDropdown(); // close after selecting
+}
+
+function togglePomoDropdown() {
+  const dropdown = document.getElementById("pomo-role-dropdown");
+  if (dropdown?.classList.contains("disabled")) return;
+  dropdown?.classList.toggle("open");
 }
 
 function cancelQuick() {
@@ -1075,20 +1126,24 @@ function updatePomoDisplay() {
 }
 
 function pomoToggle() {
+  const roleSel = document.getElementById("pomo-role-select");
   if (pomoRunning) {
     clearInterval(pomoInterval);
     pomoRunning = false;
     setText("pomo-start-btn", "Resume");
+    document.getElementById("pomo-role-dropdown")?.classList.remove("disabled");
+    
   } else {
     pomoRunning = true;
     setText("pomo-start-btn", "Pause");
+    document.getElementById("pomo-role-dropdown")?.classList.add("disabled");
     pomoInterval = setInterval(() => {
       if (pomoSeconds <= 0) {
         playNotificationSound();
         if (pomoMode === "focus") {
           tomatoCount++;
           tomatoDate = todayISO();
-          saveTomatoCount();
+          saveTomatoCount(); // now records the role too
           updateTomatoDisplay();
         }
         pomoReset();
@@ -1105,6 +1160,8 @@ function pomoReset() {
   pomoRunning = false;
   pomoSeconds = POMO_DURATIONS[pomoMode];
   setText("pomo-start-btn", "Start");
+  const roleSel = document.getElementById("pomo-role-select");
+  if (roleSel) roleSel.disabled = false;
   updatePomoDisplay();
 }
 
@@ -1121,6 +1178,12 @@ function pomoSwitch() {
   setText("pomo-switch-btn", pomoMode === "focus" ? "Break" : "Focus");
   updatePomoDisplay();
 }
+
+document.addEventListener("click", (e) => {
+  if (!e.target.closest("#pomo-role-dropdown")) {
+    document.getElementById("pomo-role-dropdown")?.classList.remove("open");
+  }
+});
 
 function updateTomatoDisplay() {
   const el = document.getElementById("tomato-counter");
@@ -1913,6 +1976,7 @@ function duplicateCurrentTask() {
 
 // ─── Analytics ────────────────────────────────────────────────────────────────
 function getAnalyticsData(filter) {
+  const rolePomoData = {}; // { "Role 1": [hours per day...], ... }
   const today = new Date(todayISO());
   let startDate = new Date(today);
 
@@ -1941,19 +2005,51 @@ function getAnalyticsData(filter) {
     );
 
     // Use pomoHistory for past days, live tomatoCount for today
-    const dayPomos =
-      dateStr === tomatoDate ? tomatoCount : pomoHistory[dateStr] || 0;
-    const focusHours = Math.round(((dayPomos * 25) / 60) * 10) / 10;
+    const dayData = getDayPomos(dateStr);
+    const focusHours = Math.round(((dayData.total * 25) / 60) * 10) / 10;
     focusHoursData.push(focusHours);
+    // Accumulate per-role
+    roles.forEach(r => {
+      rolePomoData[r] = rolePomoData[r] || [];
+      const rolePomos = dayData.roles[r] || 0;
+      rolePomoData[r].push(Math.round(((rolePomos * 25) / 60) * 10) / 10);
+    });
 
     cur.setDate(cur.getDate() + 1);
   }
 
-  return { labels, completedTasksData, focusHoursData };
+  return { labels, completedTasksData, focusHoursData, rolePomoData };
+}
+
+// Helper to safely read a day's entry regardless of old/new format
+function getDayPomos(dateStr) {
+  if (dateStr === tomatoDate) {
+    return { total: tomatoCount, roles: pomoHistory[tomatoDate]?.roles || {} };
+  }
+  const entry = pomoHistory[dateStr];
+  if (!entry) return { total: 0, roles: {} };
+  if (typeof entry === "number") return { total: entry, roles: {} }; // legacy
+  return entry;
 }
 
 function renderAnalyticsChart() {
   const data = getAnalyticsData(analyticsFilter);
+
+  // Build one dataset per role
+  const roleDatasets = roles.map(r => {
+    const c = getRoleColor(r);
+    return {
+      label: `${r} (focus hrs)`,
+      data: data.rolePomoData[r] || [],
+      backgroundColor: c.bg,
+      borderColor: c.border,
+      borderWidth: 2,
+      borderRadius: 6,
+      yAxisID: "y1",
+      stack: "roleHours", // stacked so they don't overlap
+    };
+  });
+
   const ctx = document.getElementById("analyticsChart");
   if (!ctx) return;
   if (analyticsChart) {
@@ -1976,15 +2072,7 @@ function renderAnalyticsChart() {
           borderRadius: 6,
           yAxisID: "y",
         },
-        {
-          label: "Focus Hours",
-          data: data.focusHoursData,
-          backgroundColor: "#E6D6FF",
-          borderColor: "#CDB8F5",
-          borderWidth: 2,
-          borderRadius: 6,
-          yAxisID: "y1",
-        },
+        ...roleDatasets,  // replaces the single "Focus Hours" dataset
       ],
     },
     options: {
@@ -2055,6 +2143,7 @@ function renderAnalyticsChart() {
             color: "#6040A0",
           },
           grid: { drawOnChartArea: false },
+          stacked: true,
         },
       },
     },
@@ -2114,6 +2203,7 @@ function setAnalyticsFilter(filter) {
     renderNavTabs();
     renderRoleTabs();
     updateRoleSelect();
+    updatePomoRoleSelect();
     render();
     updatePomoDisplay();
     updateTomatoDisplay();
@@ -2155,6 +2245,7 @@ function setAnalyticsFilter(filter) {
       renderNavTabs();
       renderRoleTabs();
       updateRoleSelect();
+      updatePomoRoleSelect();
       render();
       updatePomoDisplay();
       updateTomatoDisplay();
@@ -2190,7 +2281,7 @@ function loadFromLocalStorage() {
       nextId = d.nextId || 200;
       roles = d.roles || [...DEFAULT_ROLES];
       roleColorMap = d.roleColorMap || {};
-      pomoHistory = d.pomoHistory || {};
+      pomoHistory = d.pomoHistory || { ...SAMPLE_POMO_HISTORY };
       tomatoCount = d.tomatoDate === todayISO() ? d.tomatoCount || 0 : 0;
       tomatoDate = todayISO();
       const noteEl = document.getElementById("notepad");
@@ -2199,6 +2290,7 @@ function loadFromLocalStorage() {
       tasks = [...SAMPLE_TASKS];
       nextId = 200;
       roles = [...DEFAULT_ROLES];
+      pomoHistory = { ...SAMPLE_POMO_HISTORY };
     }
   } catch (_) {
     tasks = [...SAMPLE_TASKS];
@@ -2315,6 +2407,7 @@ async function importData(event) {
       renderNavTabs();
       renderRoleTabs();
       updateRoleSelect();
+      updatePomoRoleSelect();
       render();
       updateTomatoDisplay();
       if (calendar) updateCalendarEvents();
