@@ -492,10 +492,20 @@ async function loadFromFirestore() {
       t.done = false;
       t.status = "In Progress";
       t.doneDate = "";
+      t.due = todayISO(); // roll due date forward
       recurringReset = true;
     }
   });
-  if (recurringReset) saveToFirestore();
+
+  // Roll overdue recurring tasks forward to today (never completed)
+  tasks.forEach((t) => {
+    if (t.recurring && !t.done && t.due && t.due < todayISO()) {
+      t.due = todayISO();
+      recurringReset = true;
+    }
+  });
+
+  if (recurringReset) saveToFirestore(); // or saveToLocalStorage() in the local version
 
   // Auto-move tasks due today from Backlog → In Progress
   let autoMoved = false;
@@ -2304,6 +2314,34 @@ function loadFromLocalStorage() {
   roles.forEach((r) => {
     dateFilters[r.toLowerCase().replace(/\s+/g, "_")] = "all";
   });
+
+  // Reset recurring tasks that were completed on a previous day
+  let recurringReset = false;
+  tasks.forEach((t) => {
+    if (t.recurring && t.done && t.doneDate && t.doneDate !== todayISO()) {
+      t.done = false;
+      t.status = "In Progress";
+      t.doneDate = "";
+      t.due = todayISO();
+      recurringReset = true;
+    }
+  });
+
+  // Roll overdue recurring tasks forward to today (never completed)
+  tasks.forEach((t) => {
+    if (t.recurring && !t.done && t.due && t.due < todayISO()) {
+      t.due = todayISO();
+      recurringReset = true;
+    }
+  });
+
+  // Auto-move tasks due today from Backlog → In Progress
+  tasks.forEach((t) => {
+    if (!t.done && t.due === todayISO() && t.status === "Backlog") {
+      t.status = "In Progress";
+    }
+  });
+  saveToLocalStorage();
 
   // Auto-move tasks due today from Backlog → In Progress
   tasks.forEach((t) => {
