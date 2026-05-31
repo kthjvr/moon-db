@@ -518,6 +518,7 @@ async function loadFromFirestore() {
   if (autoMoved) saveToFirestore();
 
   showLoadingState(false);
+  scheduleNotifications();
 }
 
 async function saveToFirestore() {
@@ -770,6 +771,11 @@ function taskCardHTML(t, showRole) {
           <button class="task-card-delete" onclick="toggleRecurring(${t.id})" title="${t.recurring ? "Remove recurring" : "Mark as recurring"}" style="opacity:0.6;font-size:0.85rem;">${t.recurring ? "<i class='ph-bold ph-arrows-clockwise'></i>" : "<i class='ph-bold ph-arrows-clockwise'></i>"}</button>
           <button class="task-card-delete" onclick="duplicateTask(${t.id})" title="Duplicate" style="opacity:0.6;"><i class="ph-bold ph-copy"></i></button>
           <button class="task-card-delete" onclick="deleteTask(${t.id})"><i class="ph-bold ph-x"></i></button>
+          <button class="task-card-delete" onclick="toggleTaskNotify(${t.id})"
+            title="${t.notify ? 'Turn off notification' : 'Turn on notification'}"
+            style="opacity:${t.notify ? '1' : '0.6'};color:${t.notify ? '#c05070' : 'inherit'};">
+            <i class="ph-bold ${t.notify ? 'ph-bell-ringing' : 'ph-bell'}"></i>
+          </button>
         </div>
       </div>
     </div>`;
@@ -903,6 +909,8 @@ function duplicateTask(id) {
     due: orig.due,
     done: false,
     recurring: orig.recurring || false,
+    notify: orig.notify || false,         
+    notifyInterval: orig.notifyInterval || 60, 
   });
   saveData();
   render();
@@ -997,6 +1005,8 @@ function saveQuickTask() {
     due,
     done: false,
     recurring,
+    notify: false,
+    notifyInterval: 60,
   });
   saveData();
   render();
@@ -1087,22 +1097,91 @@ function render() {
 // ─── Pomodoro ─────────────────────────────────────────────────────────────────
 function playNotificationSound() {
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)(),
-      now = ctx.currentTime;
-    for (let i = 0; i < 3; i++) {
-      const osc = ctx.createOscillator(),
-        gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.frequency.value = 800;
+    const ctx = getAudioContext();
+    const master = ctx.createGain();
+    master.gain.setValueAtTime(0.28, ctx.currentTime);
+    master.connect(ctx.destination);
+
+    // Soft chime note helper
+    function chime(freq, startTime, duration, volume = 1) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      // Slight detune for warmth — two oscillators per note
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+
       osc.type = "sine";
-      const t = now + i * 0.2;
-      gain.gain.setValueAtTime(0.3, t);
-      gain.gain.exponentialRampToValueAtTime(0.01, t + 0.5);
-      osc.start(t);
-      osc.stop(t + 0.5);
+      osc2.type = "sine";
+      osc.frequency.value = freq;
+      osc2.frequency.value = freq * 1.002; // subtle detune
+
+      gain.gain.setValueAtTime(0, startTime);
+      gain.gain.linearRampToValueAtTime(volume, startTime + 0.02); // quick attack
+      gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+
+      gain2.gain.setValueAtTime(0, startTime);
+      gain2.gain.linearRampToValueAtTime(volume * 0.6, startTime + 0.02);
+      gain2.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+
+      osc.connect(gain);
+      osc2.connect(gain2);
+      gain.connect(master);
+      gain2.connect(master);
+
+      osc.start(startTime);
+      osc.stop(startTime + duration);
+      osc2.start(startTime);
+      osc2.stop(startTime + duration);
     }
+
+    // Harmonic pad helper — sustained background warmth
+    function pad(freq, startTime, duration) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0, startTime);
+      gain.gain.linearRampToValueAtTime(0.06, startTime + 0.3);
+      gain.gain.linearRampToValueAtTime(0.06, startTime + duration - 0.5);
+      gain.gain.linearRampToValueAtTime(0, startTime + duration);
+      osc.connect(gain);
+      gain.connect(master);
+      osc.start(startTime);
+      osc.stop(startTime + duration);
+    }
+
+    const t = ctx.currentTime;
+
+    // Opening chime — ascending phrase (C5, E5, G5, C6)
+    chime(523.25, t + 0.0,  2.0, 1.0);   // C5
+    chime(659.25, t + 0.4,  2.0, 0.9);   // E5
+    chime(783.99, t + 0.8,  2.2, 0.85);  // G5
+    chime(1046.5, t + 1.2,  2.5, 0.8);   // C6 — peak
+
+    // Gentle resolution — descending (G5, E5, C5)
+    chime(783.99, t + 2.2,  1.8, 0.6);   // G5
+    chime(659.25, t + 2.9,  1.8, 0.5);   // E5
+    chime(523.25, t + 3.5,  2.0, 0.45);  // C5 — settle
+
+    // Warm pad underneath the whole sequence
+    pad(261.63, t, 5.5);   // C4
+    pad(329.63, t, 5.5);   // E4
+    pad(392.00, t, 5.5);   // G4
+
   } catch (_) {}
+}
+
+// Shared AudioContext — created once on user interaction
+let sharedAudioCtx = null;
+
+function getAudioContext() {
+  if (!sharedAudioCtx) {
+    sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (sharedAudioCtx.state === "suspended") {
+    sharedAudioCtx.resume();
+  }
+  return sharedAudioCtx;
 }
 
 function updatePomoDisplay() {
@@ -1918,6 +1997,28 @@ function showTaskDetail(task) {
   if (pEl) pEl.innerHTML = priPill(task.priority);
   if (rEl) rEl.innerHTML = rolePill(task.role);
   if (dEl) dEl.textContent = task.due ? formatDate(task.due) : "No due date";
+  // Notification section
+  const notifEl = document.getElementById("modal-notify-section");
+  if (notifEl) {
+    const intervals = [30, 60, 120, 240];
+    notifEl.innerHTML = `
+      <div class="modal-label" style="margin-bottom:0.5rem;">Notification</div>
+      <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+        <button onclick="toggleTaskNotify(${task.id})"
+          style="display:flex;align-items:center;gap:0.4rem;padding:0.4rem 0.85rem;border-radius:0.75rem;font-size:0.8rem;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;border:1.5px solid ${task.notify ? '#f0a0c0' : '#ffd6e7'};background:${task.notify ? '#ffe0ec' : '#fff7fa'};color:${task.notify ? '#c05070' : '#c0a0b0'};">
+          <i class="ph-bold ${task.notify ? 'ph-bell-ringing' : 'ph-bell'}"></i>
+          ${task.notify ? 'On' : 'Off'}
+        </button>
+        ${task.notify ? `
+          <div style="display:flex;gap:0.35rem;flex-wrap:wrap;">
+            ${intervals.map(m => `
+              <button onclick="setTaskNotifyInterval(${task.id}, ${m})"
+                style="padding:0.35rem 0.65rem;border-radius:0.65rem;font-size:0.75rem;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;border:1.5px solid ${task.notifyInterval === m ? '#f0a0c0' : '#ffd6e7'};background:${task.notifyInterval === m ? '#ffe0ec' : 'white'};color:${task.notifyInterval === m ? '#c05070' : '#c0a0b0'};">
+                ${m < 60 ? `${m}m` : `${m/60}h`}
+              </button>`).join('')}
+          </div>` : ''}
+      </div>`;
+  }
   const undoBtn = document.getElementById("modal-undo-btn");
   const doneBtn = document.getElementById("modal-done-btn");
   if (task.done) {
@@ -1978,6 +2079,8 @@ function duplicateCurrentTask() {
     due: task.due,
     done: false,
     recurring: task.recurring || false,
+    notify: task.notify || false,
+    notifyInterval: task.notifyInterval || 60,
   });
   saveData();
   render();
@@ -2179,6 +2282,93 @@ function setAnalyticsFilter(filter) {
   renderAnalyticsChart();
 }
 
+// ─── Notifications ────────────────────────────────────────────────────────────
+let notifTimers = {}; // { taskId: intervalId }
+
+function scheduleNotifications() {
+  // Clear all existing timers first
+  Object.values(notifTimers).forEach(id => clearInterval(id));
+  notifTimers = {};
+
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+
+  const today = todayISO();
+
+  tasks.forEach(t => {
+    if (!t.notify || t.done) return;           // skip if notify off or done
+    if (!t.due || t.due < today) return;       // skip if overdue or no due date
+    if (t.due > today) return;                 // skip if not due today
+
+    const intervalMs = (t.notifyInterval || 60) * 60 * 1000;
+    notifTimers[t.id] = setInterval(() => {
+      // Re-check conditions at fire time
+      const task = tasks.find(x => x.id === t.id);
+      if (!task || task.done || !task.notify) {
+        clearInterval(notifTimers[t.id]);
+        delete notifTimers[t.id];
+        return;
+      }
+      fireNotification(task);
+    }, intervalMs);
+
+    // Fire once immediately on schedule so user knows it's active
+    fireNotification(t);
+  });
+}
+
+function fireNotification(task) {
+  if (Notification.permission !== "granted") return;
+  playNotificationSound();
+  const c = getRoleColor(task.role);
+  const n = new Notification(`🌙 ${task.title}`, {
+    body: `${task.role} · ${task.priority} priority · Due ${formatDate(task.due)}`,
+    icon: "https://ik.imagekit.io/e3wiv79bq/Assets-DP/Moon%20DB.ico",
+    tag: `task-${task.id}`, // replaces previous notif for same task
+    silent: true,
+  });
+  n.onclick = () => {
+    window.focus();
+    showTaskDetail(task);
+    n.close();
+  };
+}
+
+function toggleTaskNotify(id) {
+  getAudioContext();
+  const t = tasks.find(x => x.id === id);
+  if (!t) return;
+
+  if (Notification.permission === "denied") {
+    alert("Notifications are blocked. Please enable them in your browser settings.");
+    return;
+  }
+
+  if (Notification.permission === "default") {
+    Notification.requestPermission().then(perm => {
+      if (perm === "granted") toggleTaskNotify(id); // retry after grant
+    });
+    return;
+  }
+
+  t.notify = !t.notify;
+  if (t.notify && !t.notifyInterval) t.notifyInterval = 60; 
+  saveData();
+  scheduleNotifications();
+  render();
+
+  // If modal is open, re-render it
+  if (window.currentModalTask?.id === id) showTaskDetail(t);
+}
+
+function setTaskNotifyInterval(id, minutes) {
+  const t = tasks.find(x => x.id === id);
+  if (!t) return;
+  t.notifyInterval = parseInt(minutes);
+  saveData();
+  scheduleNotifications();
+  if (window.currentModalTask?.id === id) showTaskDetail(t);
+}
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 (function init() {
   // ── DEV MODE: skip auth when running locally ──────────────────────────
@@ -2186,6 +2376,11 @@ function setAnalyticsFilter(filter) {
     location.hostname === "localhost" ||
     location.hostname === "127.0.0.1" ||
     location.hostname === "";
+
+  // Request notification permission on startup
+  if ("Notification" in window && Notification.permission === "default") {
+    Notification.requestPermission();
+  }
 
   if (isLocal) {
     console.log("🌙 Dev mode — skipping auth");
@@ -2342,14 +2537,7 @@ function loadFromLocalStorage() {
     }
   });
   saveToLocalStorage();
-
-  // Auto-move tasks due today from Backlog → In Progress
-  tasks.forEach((t) => {
-    if (!t.done && t.due === todayISO() && t.status === "Backlog") {
-      t.status = "In Progress";
-    }
-  });
-  saveToLocalStorage();
+  scheduleNotifications();
 }
 
 function saveToLocalStorage() {
@@ -2380,6 +2568,16 @@ function saveData() {
   else saveToFirestore();
   if (activeTab === "overview") updateCalendarEvents();
 }
+
+// Re-run scheduler at midnight
+(function scheduleMidnightRefresh() {
+  const now = new Date();
+  const msUntilMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1) - now;
+  setTimeout(() => {
+    scheduleNotifications();
+    scheduleMidnightRefresh(); // reschedule for next midnight
+  }, msUntilMidnight);
+})();
 
 // ─── Import/Export ────────────────────────────────────────────────────────────
 function exportData() {

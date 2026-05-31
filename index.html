@@ -13,10 +13,9 @@
   <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
-  <script
-    src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
   <link rel="icon" href="https://ik.imagekit.io/e3wiv79bq/Assets-DP/Moon%20DB.ico" type="image/x-icon">
-  <!-- Firebase SDKs (compat version — no bundler needed) -->
+  <link rel="shortcut icon" href="https://ik.imagekit.io/e3wiv79bq/Assets-DP/Moon%20DB.ico" type="image/x-icon">  <!-- Firebase SDKs (compat version — no bundler needed) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -259,15 +258,17 @@
             </div>
             <p id="pomo-mode-label" class="text-xs text-pink-400 mb-3">Focus session</p>
             <!-- Role selector for pomo session -->
-            <div id="pomo-role-wrap" style="margin-bottom:0.75rem;">
-              <label style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#F0A0C0;display:block;margin-bottom:0.35rem;">
-                Session Role
-              </label>
-              <select id="pomo-role-select"
-                onchange="pomoRole = this.value || null"
-                style="width:100%;padding:0.5rem 0.75rem;border:1.5px solid #FFD6E7;border-radius:0.75rem;font-size:0.85rem;font-family:'DM Sans',sans-serif;color:#802840;background:#FFF7FA;outline:none;cursor:pointer;">
-                <option value="">— No role —</option>
-              </select>
+            <div id="pomo-role-wrap">
+              <label>Session Role</label>
+              <div id="pomo-role-dropdown" class="pomo-dropdown">
+                <button type="button" class="pomo-dropdown-trigger" onclick="togglePomoDropdown()">
+                  <span id="pomo-role-label">— No role —</span>
+                  <i class="ph-bold ph-caret-down" id="pomo-dropdown-caret"></i>
+                </button>
+                <div class="pomo-dropdown-menu" id="pomo-dropdown-menu">
+                  <div class="pomo-dropdown-option selected" onclick="selectPomoRole('', this)">— No role —</div>
+                </div>
+              </div>
             </div>
             <div class="flex gap-2">
               <button id="pomo-start-btn" onclick="pomoToggle()"
@@ -373,6 +374,7 @@
             <span class="modal-label">Due Date</span>
             <span id="modal-due-date" class="modal-value"></span>
           </div>
+          <div class="modal-section" id="modal-notify-section"></div>
         </div>
         <div class="modal-actions">
           <button id="modal-undo-btn" class="modal-btn modal-btn-secondary hidden" onclick="markTaskUndone()">
