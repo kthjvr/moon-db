@@ -147,6 +147,12 @@ function offsetDate(days) {
   return d.toISOString().split("T")[0];
 }
 
+function offsetFromDate(iso, days) {
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function formatDate(iso) {
   if (!iso) return "";
   const t = todayISO();
@@ -175,18 +181,21 @@ function fmtSeconds(s) {
 
 function matchesDateFilter(t, filter) {
   if (filter === "all" || !t.due) return true;
-  const today = new Date(todayISO()),
-    due = new Date(t.due);
-  if (filter === "today") return t.due === todayISO();
+  const today = new Date(todayISO());
+  const start = new Date(t.due);
+  const end = t.dueEnd ? new Date(t.dueEnd) : start;
+
+  if (filter === "today") {
+    const t0 = todayISO();
+    return t.due <= t0 && (t.dueEnd || t.due) >= t0;
+  }
   if (filter === "week") {
-    const e = new Date(today);
-    e.setDate(today.getDate() + 7);
-    return due >= today && due <= e;
+    const e = new Date(today); e.setDate(today.getDate() + 7);
+    return start <= e && end >= today;
   }
   if (filter === "month") {
-    const e = new Date(today);
-    e.setMonth(today.getMonth() + 1);
-    return due >= today && due <= e;
+    const e = new Date(today); e.setMonth(today.getMonth() + 1);
+    return start <= e && end >= today;
   }
   return true;
 }
@@ -271,6 +280,7 @@ const SAMPLE_POMO_HISTORY = {
 
 // ─── State ──────────────────────────────────────────────────────────────────
 /** @type {Task[]} */ let tasks = [];
+let isGuestMode = false;
 let nextId = 200;
 let activeTab = "overview";
 /** @type {string[]} */ let roles = [...DEFAULT_ROLES];
@@ -298,6 +308,12 @@ let pomoHistory = {};
 let quickTitle = "";
 let isEditingTaskTitle = false;
 
+const KANBAN_PAGE_SIZE = 5;
+let kanbanSearch = {};  
+let kanbanPage = {};
+
+let selectedTasks = new Set();
+
 // ─── Auth helpers ────────────────────────────────────────────────────────────
 function signInWithGoogle() {
   const provider = new firebase.auth.GoogleAuthProvider();
@@ -309,6 +325,12 @@ function signInWithGoogle() {
 
 function signOut() {
   if (!confirm("Sign out of Moon DB?")) return;
+  if (isGuestMode) {
+    isGuestMode = false;
+    currentUser = null;
+    showLoginScreen();
+    return;
+  }
   auth.signOut();
 }
 
@@ -358,14 +380,57 @@ function saveDisplayNameFromSettings() {
   const input = document.getElementById('settings-display-name');
   const newName = input?.value.trim();
   if (!newName) { alert('Name cannot be empty!'); return; }
-  currentUser.updateProfile({ displayName: newName })
-    .then(() => {
-      updateUserDisplay(currentUser);
-      userDoc().update({ displayName: newName }).catch(() => {});
-      input.style.borderColor = '#88D8B8';
-      setTimeout(() => { input.style.borderColor = '#FFD6E7'; }, 1500);
-    })
-    .catch(err => { console.error(err); alert('Failed to update name.'); });
+
+  currentUser.updateProfile({ displayName: newName }).then(() => {
+    updateUserDisplay(currentUser);
+    if (isGuestMode) saveToLocalStorage();
+    else userDoc().update({ displayName: newName }).catch(() => {});
+    input.style.borderColor = '#88D8B8';
+    setTimeout(() => { input.style.borderColor = '#FFD6E7'; }, 1500);
+  }).catch(err => { console.error(err); alert('Failed to update name.'); });
+}
+
+function continueAsGuest() {
+  isGuestMode = true;
+  currentUser = {
+    uid: "guest-user",
+    displayName: "Guest",
+    email: "",
+    photoURL: null,
+    updateProfile: (data) => {
+      if (data.displayName) currentUser.displayName = data.displayName;
+      return Promise.resolve();
+    },
+  };
+  updateUserDisplay(currentUser);
+  showAppScreen();
+
+  const todayEl = document.getElementById("today-label");
+  if (todayEl)
+    todayEl.textContent = new Date().toLocaleDateString("en-US", {
+      weekday: "short", month: "short", day: "numeric",
+    });
+
+  loadFromLocalStorage();
+  renderNavTabs();
+  renderRoleTabs();
+  updateRoleSelect();
+  updatePomoRoleSelect();
+  render();
+  updatePomoDisplay();
+  updateTomatoDisplay();
+  setTimeout(() => initCalendar(), 100);
+  setTimeout(() => renderAnalyticsChart(), 150);
+  renderCalendarRoleFilter();
+
+  const notepad = document.getElementById("notepad");
+  if (notepad) {
+    let noteTimer = 0;
+    notepad.addEventListener("input", () => {
+      clearTimeout(noteTimer);
+      noteTimer = setTimeout(saveNote, 800);
+    });
+  }
 }
 
 // ─── Task title editing ──────────────────────────────────────────────────────
@@ -543,50 +608,37 @@ async function saveToFirestore() {
 }
 
 function saveData() {
-  saveToFirestore();
+  if (isGuestMode) saveToLocalStorage();
+  else saveToFirestore();
   if (activeTab === "overview") updateCalendarEvents();
 }
 
 async function saveNote() {
+  const saved = document.getElementById("note-saved");
+  if (isGuestMode) {
+    saveToLocalStorage();
+    if (saved) { saved.textContent = "✓ saved"; setTimeout(() => (saved.textContent = ""), 1500); }
+    return;
+  }
   if (!currentUser) return;
-  const el = /** @type {HTMLTextAreaElement} */ (
-    document.getElementById("notepad")
-  );
+  const el = document.getElementById("notepad");
   try {
-    await userDoc().update({
-      note: el.value,
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-    });
+    await userDoc().update({ note: el.value, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
   } catch (_) {
     await saveToFirestore();
   }
-  const saved = document.getElementById("note-saved");
-  if (saved) {
-    saved.textContent = "✓ saved";
-    setTimeout(() => {
-      saved.textContent = "";
-    }, 1500);
-  }
+  if (saved) { saved.textContent = "✓ saved"; setTimeout(() => (saved.textContent = ""), 1500); }
 }
 
 function saveTomatoCount() {
-  const existing = pomoHistory[tomatoDate]; // Build today's history entry
-  const base = (existing && typeof existing === "object") // Handle legacy format (plain number)
-    ? existing
-    : { total: (typeof existing === "number" ? existing : 0), roles: {} };
-
-  const updated = {
-    total: tomatoCount,
-    roles: { ...base.roles }
-  };
-  if (pomoRole) {
-    updated.roles[pomoRole] = (updated.roles[pomoRole] || 0) + 1;
-  }
+  const existing = pomoHistory[tomatoDate];
+  const base = (existing && typeof existing === "object") ? existing : { total: (typeof existing === "number" ? existing : 0), roles: {} };
+  const updated = { total: tomatoCount, roles: { ...base.roles } };
+  if (pomoRole) updated.roles[pomoRole] = (updated.roles[pomoRole] || 0) + 1;
   pomoHistory[tomatoDate] = updated;
 
-  userDoc()
-    .update({ tomatoCount, tomatoDate, pomoHistory })
-    .catch(() => saveToFirestore());
+  if (isGuestMode) { saveToLocalStorage(); return; }
+  userDoc().update({ tomatoCount, tomatoDate, pomoHistory }).catch(() => saveToFirestore());
 }
 
 function showLoadingState(loading) {
@@ -692,21 +744,35 @@ function renderKanban(role, elId, dateFilter) {
   const isMobile = window.innerWidth <= 768;
   const el = document.getElementById(elId);
   if (!el) return;
+
+  const tabKey = role === null ? "all" : role.toLowerCase().replace(/\s+/g, "_");
+
   let filtered = tasks.filter(
-    (t) =>
-      (role === null || t.role === role) && matchesDateFilter(t, dateFilter),
+    (t) => (role === null || t.role === role) && matchesDateFilter(t, dateFilter),
   );
-  const tabKey =
-    role === null ? "all" : role.toLowerCase().replace(/\s+/g, "_");
+
+  const search = (kanbanSearch[tabKey] || "").trim().toLowerCase();
+  if (search) {
+    filtered = filtered.filter((t) => t.title.toLowerCase().includes(search));
+  }
+
   const sortDir = sortDirections[tabKey] || "asc";
   filtered = filtered.sort((a, b) => {
     const aDate = a.due ? new Date(a.due) : new Date("9999-12-31");
     const bDate = b.due ? new Date(b.due) : new Date("9999-12-31");
     return sortDir === "asc" ? aDate - bDate : bDate - aDate;
   });
+
   let html = "";
   for (const status of STATUSES) {
     const statusTasks = filtered.filter((t) => t.status === status);
+    const pageKey = `${tabKey}-${status}`;
+    const totalPages = Math.max(1, Math.ceil(statusTasks.length / KANBAN_PAGE_SIZE));
+    let curPage = kanbanPage[pageKey] || 0;
+    curPage = Math.min(Math.max(curPage, 0), totalPages - 1);
+    kanbanPage[pageKey] = curPage;
+    const pageTasks = statusTasks.slice(curPage * KANBAN_PAGE_SIZE, curPage * KANBAN_PAGE_SIZE + KANBAN_PAGE_SIZE);
+
     html += `
       <div class="kanban-column">
         <div class="kanban-column-header">
@@ -715,13 +781,25 @@ function renderKanban(role, elId, dateFilter) {
         </div>
         <div class="kanban-drop-zone" data-status="${status}"
           ondrop="handleDrop(event)" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)">
-          ${statusTasks.length ? statusTasks.map((t) => taskCardHTML(t, role === null)).join("") : '<div class="kanban-empty">Drop tasks here</div>'}
+          ${pageTasks.length
+            ? pageTasks.map((t) => taskCardHTML(t, role === null)).join("")
+            : `<div class="kanban-empty">${statusTasks.length ? "No tasks on this page" : (search ? "No matches" : "Drop tasks here")}</div>`}
         </div>
+        ${totalPages > 1 ? `
+        <div class="kanban-pagination">
+          <button class="kanban-page-btn" onclick="changeKanbanPage('${pageKey}',-1)" ${curPage === 0 ? "disabled" : ""}>
+            <i class="ph-bold ph-caret-left"></i>
+          </button>
+          <span class="kanban-page-label">${curPage + 1} / ${totalPages}</span>
+          <button class="kanban-page-btn" onclick="changeKanbanPage('${pageKey}',1)" ${curPage === totalPages - 1 ? "disabled" : ""}>
+            <i class="ph-bold ph-caret-right"></i>
+          </button>
+        </div>` : ""}
       </div>`;
   }
-  // On mobile, prepend column switcher tabs
+
   if (isMobile) {
-    const activeCol = el.dataset.mobileCol || 'In Progress';
+    const activeCol = el.dataset.mobileCol || "In Progress";
     const tabsHtml = `
       <div class="kanban-mobile-tabs" style="display:flex;gap:0.5rem;margin-bottom:1rem;overflow-x:auto;padding-bottom:0.25rem;">
         ${STATUSES.map(s => `
@@ -731,7 +809,6 @@ function renderKanban(role, elId, dateFilter) {
           </button>`).join('')}
       </div>`;
     el.innerHTML = tabsHtml + html;
-    // Show only active column
     el.querySelectorAll('.kanban-column').forEach(col => {
       const title = col.querySelector('.kanban-column-title')?.textContent?.trim();
       col.classList.toggle('mobile-active', title === activeCol);
@@ -739,6 +816,17 @@ function renderKanban(role, elId, dateFilter) {
   } else {
     el.innerHTML = html;
   }
+}
+
+function changeKanbanPage(pageKey, dir) {
+  kanbanPage[pageKey] = (kanbanPage[pageKey] || 0) + dir;
+  render();
+}
+
+function setKanbanSearch(tabKey, value) {
+  kanbanSearch[tabKey] = value;
+  STATUSES.forEach((s) => { kanbanPage[`${tabKey}-${s}`] = 0; }); // reset pages on new search
+  render();
 }
 
 function setMobileKanbanCol(elId, status) {
@@ -757,6 +845,11 @@ function taskCardHTML(t, showRole) {
   return `
     <div class="task-card" draggable="true" id="card-${t.id}" style="border-left:3px solid ${c.border};"
       ondragstart="handleDragStart(event,${t.id})" ondragend="handleDragEnd(event)">
+      <input type="checkbox" class="task-select-box" data-id="${t.id}"
+        ${selectedTasks.has(t.id) ? "checked" : ""}
+        onclick="event.stopPropagation()"
+        onchange="toggleSelectTask(${t.id}, this.checked)"
+        style="position:absolute;top:8px;right:8px;width:16px;height:16px;cursor:pointer;accent-color:#A888E0;" />
       <div class="task-card-title">${t.title}</div>
       <div class="task-card-meta">
         ${showRole ? rolePill(t.role) : ""}
@@ -764,10 +857,12 @@ function taskCardHTML(t, showRole) {
         ${recurringBadge}
       </div>
       <div class="task-card-bottom">
-        <input type="date" class="task-card-due" value="${t.due || ""}"
-          style="padding:0.25rem 0.5rem;border:1px solid #FFD6E7;border-radius:0.375rem;font-size:0.75rem;cursor:pointer;"
-          onchange="updateTaskDue(${t.id},this.value)" />
-        <div style="display:flex;gap:0.25rem;align-items:center;">
+        ${t.dueEnd
+          ? `<span style="font-size:0.75rem;color:#A03858;font-weight:500;">${formatDate(t.due)} → ${formatDate(t.dueEnd)}</span>`
+          : `<input type="date" class="task-card-due" value="${t.due || ""}"
+              style="padding:0.25rem 0.5rem;border:1px solid #FFD6E7;border-radius:0.375rem;font-size:0.75rem;cursor:pointer;"
+              onchange="updateTaskDue(${t.id},this.value)" />`}
+          <div style="display:flex;gap:0.25rem;align-items:center;">
           <button class="task-card-delete" onclick="toggleRecurring(${t.id})" title="${t.recurring ? "Remove recurring" : "Mark as recurring"}" style="opacity:0.6;font-size:0.85rem;">${t.recurring ? "<i class='ph-bold ph-arrows-clockwise'></i>" : "<i class='ph-bold ph-arrows-clockwise'></i>"}</button>
           <button class="task-card-delete" onclick="duplicateTask(${t.id})" title="Duplicate" style="opacity:0.6;"><i class="ph-bold ph-copy"></i></button>
           <button class="task-card-delete" onclick="deleteTask(${t.id})"><i class="ph-bold ph-x"></i></button>
@@ -799,6 +894,89 @@ function taskRowHTML(t, showDelete) {
       </div>
       ${showDelete ? `<button class="text-pink-200 hover:text-pink-400 text-base w-5 h-5 flex items-center justify-center rounded-full flex-shrink-0 transition" onclick="deleteTask(${t.id})">×</button>` : ""}
     </div>`;
+}
+
+function toggleSelectTask(id, checked) {
+  if (checked) selectedTasks.add(id);
+  else selectedTasks.delete(id);
+}
+
+function toggleSelectAll(elId, checked) {
+  const boxes = document.querySelectorAll(`#${elId} .task-select-box`);
+  boxes.forEach(b => {
+    const id = Number(b.dataset.id);
+    b.checked = checked;
+    checked ? selectedTasks.add(id) : selectedTasks.delete(id);
+  });
+}
+
+let pendingBulkAction = null; // { elId, type: 'done' | 'delete' }
+
+function bulkMarkDone(elId) {
+  const ids = [...document.querySelectorAll(`#${elId} .task-select-box:checked`)].map(b => Number(b.dataset.id));
+  if (!ids.length) return;
+  showBulkConfirm(elId, 'done', ids.length);
+}
+
+function bulkDelete(elId) {
+  const ids = [...document.querySelectorAll(`#${elId} .task-select-box:checked`)].map(b => Number(b.dataset.id));
+  if (!ids.length) return;
+  showBulkConfirm(elId, 'delete', ids.length);
+}
+
+function showBulkConfirm(elId, type, count) {
+  pendingBulkAction = { elId, type };
+  const icon = document.getElementById('bulk-confirm-icon');
+  const title = document.getElementById('bulk-confirm-title');
+  const msg = document.getElementById('bulk-confirm-message');
+  const btn = document.getElementById('bulk-confirm-action-btn');
+
+  if (type === 'delete') {
+    icon.textContent = '🗑️';
+    icon.style.background = '#FFE0E8';
+    title.textContent = `Delete ${count} task${count > 1 ? 's' : ''}?`;
+    msg.textContent = "This can't be undone.";
+    btn.textContent = 'Delete';
+    btn.className = 'bulk-confirm-btn danger';
+  } else {
+    icon.textContent = '✓';
+    icon.style.background = '#E6D6FF';
+    title.textContent = `Mark ${count} task${count > 1 ? 's' : ''} as done?`;
+    msg.textContent = "You can undo this later from the task.";
+    btn.textContent = 'Mark done';
+    btn.className = 'bulk-confirm-btn success';
+  }
+  btn.onclick = confirmBulkAction;
+  document.getElementById('bulk-confirm-overlay').classList.add('active');
+}
+
+function closeBulkConfirm(e) {
+  if (e && e.target.id !== 'bulk-confirm-overlay') return;
+  document.getElementById('bulk-confirm-overlay').classList.remove('active');
+  pendingBulkAction = null;
+}
+
+function confirmBulkAction() {
+  if (!pendingBulkAction) return;
+  const { elId, type } = pendingBulkAction;
+  const ids = [...document.querySelectorAll(`#${elId} .task-select-box:checked`)].map(b => Number(b.dataset.id));
+
+  if (type === 'done') {
+    tasks.forEach(t => {
+      if (ids.includes(t.id)) {
+        t.done = true;
+        t.status = "Done";
+        t.doneDate = todayISO();
+      }
+    });
+  } else if (type === 'delete') {
+    tasks = tasks.filter(t => !ids.includes(t.id));
+  }
+
+  selectedTasks.clear();
+  saveData();
+  render();
+  closeBulkConfirm();
 }
 
 // ─── Render: Calendar Filter ─────────────────────────────────────────────────────────
@@ -935,17 +1113,163 @@ function toggleRecurring(id) {
   }
 }
 
-function quickAdd() {
-  const input = /** @type {HTMLInputElement} */ (
-    document.getElementById("quick-input")
-  );
-  quickTitle = input.value.trim();
-  if (!quickTitle) return;
+function openAddTaskModal() {
   updateRoleSelect();
-  updatePomoRoleSelect();
-  document.getElementById("quick-form").classList.remove("hidden");
-  /** @type {HTMLInputElement} */ (document.getElementById("qf-due")).value =
-    todayISO();
+  document.getElementById("quick-input").value = "";
+  document.getElementById("qf-due").value = todayISO();
+  dateMode = "single";
+  multiDates = [];
+  rangeStart = null;
+  rangeEnd = null;
+  document.getElementById("qf-multi-date-chips").innerHTML = "";
+  const countEl = document.getElementById("qf-range-count");
+  if (countEl) countEl.textContent = "";
+  setDateMode("single");
+  document.getElementById("add-task-modal-overlay").classList.add("active");
+  setTimeout(() => document.getElementById("quick-input").focus(), 50);
+}
+
+function closeAddTaskModal(e) {
+  if (e && e.target.id !== "add-task-modal-overlay") return;
+  document.getElementById("add-task-modal-overlay")?.classList.remove("active");
+}
+
+let dateMode = "single";
+let multiDates = [];
+
+function setDateMode(mode) {
+  dateMode = mode;
+  ["single", "multiple", "range"].forEach((m) => {
+    document.getElementById(`qf-date-${m}`).classList.toggle("hidden", m !== mode);
+    document.getElementById(`dm-${m}`).classList.toggle("active", m === mode);
+  });
+  if (mode === "multiple") renderMiniCalendar("multiple");
+  if (mode === "range") renderMiniCalendar("range");
+}
+
+// ─── Mini calendar ────────────────
+let miniCalMonthMulti = new Date();
+let miniCalMonthRange = new Date();
+let rangeStart = null;
+let rangeEnd = null;
+
+function pad2(n) { return String(n).padStart(2, "0"); }
+function ymd(y, m, d) { return `${y}-${pad2(m + 1)}-${pad2(d)}`; }
+
+function navMiniCal(mode, dir) {
+  if (mode === "multiple") miniCalMonthMulti.setMonth(miniCalMonthMulti.getMonth() + dir);
+  else miniCalMonthRange.setMonth(miniCalMonthRange.getMonth() + dir);
+  renderMiniCalendar(mode);
+}
+
+function renderMiniCalendar(mode) {
+  const monthDate = mode === "multiple" ? miniCalMonthMulti : miniCalMonthRange;
+  const containerId = mode === "multiple" ? "mini-cal-multiple" : "mini-cal-range";
+  const el = document.getElementById(containerId);
+  if (!el) return;
+
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const firstDayIdx = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const monthLabel = monthDate.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  const today = todayISO();
+  const weekdays = ["S", "M", "T", "W", "T", "F", "S"];
+
+  let cells = "";
+  for (let i = 0; i < firstDayIdx; i++) cells += `<div class="mini-cal-day empty"></div>`;
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = ymd(year, month, d);
+    let cls = "mini-cal-day";
+    if (dateStr === today) cls += " today";
+
+    if (mode === "multiple") {
+      if (multiDates.includes(dateStr)) cls += " selected";
+    } else {
+      if (dateStr === rangeStart) cls += " range-start";
+      else if (dateStr === rangeEnd) cls += " range-end";
+      else if (rangeStart && rangeEnd && dateStr > rangeStart && dateStr < rangeEnd) cls += " range-mid";
+    }
+    cells += `<button type="button" class="${cls}" onclick="onMiniCalDayClick('${mode}','${dateStr}')">${d}</button>`;
+  }
+
+  el.innerHTML = `
+    <div class="mini-cal-header">
+      <button type="button" class="mini-cal-nav-btn" onclick="navMiniCal('${mode}',-1)"><i class="ph-bold ph-caret-left"></i></button>
+      <span class="mini-cal-title">${monthLabel}</span>
+      <button type="button" class="mini-cal-nav-btn" onclick="navMiniCal('${mode}',1)"><i class="ph-bold ph-caret-right"></i></button>
+    </div>
+    <div class="mini-cal-weekdays">${weekdays.map(w => `<span class="mini-cal-weekday">${w}</span>`).join("")}</div>
+    <div class="mini-cal-grid">${cells}</div>`;
+}
+
+function onMiniCalDayClick(mode, dateStr) {
+  if (mode === "multiple") {
+    if (multiDates.includes(dateStr)) multiDates = multiDates.filter(d => d !== dateStr);
+    else { multiDates.push(dateStr); multiDates.sort(); }
+    renderMiniCalendar("multiple");
+    renderMultiDateChips();
+  } else {
+    if (!rangeStart || (rangeStart && rangeEnd)) {
+      rangeStart = dateStr; rangeEnd = null;
+    } else if (dateStr < rangeStart) {
+      rangeEnd = rangeStart; rangeStart = dateStr;
+    } else {
+      rangeEnd = dateStr;
+    }
+    renderMiniCalendar("range");
+    updateRangeCount();
+  }
+}
+
+function removeMultiDate(date) {
+  multiDates = multiDates.filter((d) => d !== date);
+  renderMiniCalendar("multiple");
+  renderMultiDateChips();
+}
+
+function renderMultiDateChips() {
+  const el = document.getElementById("qf-multi-date-chips");
+  if (!el) return;
+  el.innerHTML = multiDates
+    .map(d => `
+    <span class="date-chip">
+      ${formatDate(d)}
+      <button type="button" onclick="removeMultiDate('${d}')" title="Remove"><i class="ph-bold ph-x"></i></button>
+    </span>`).join("");
+}
+
+function updateRangeCount() {
+  const countEl = document.getElementById("qf-range-count");
+  if (!countEl) return;
+  if (!rangeStart || !rangeEnd) { countEl.textContent = rangeStart ? "Pick an end date" : ""; return; }
+  const days = getRangeDates(rangeStart, rangeEnd).length;
+  countEl.textContent = `${days} task${days > 1 ? "s" : ""} will be created (${formatDate(rangeStart)} → ${formatDate(rangeEnd)})`;
+}
+
+function renderMultiDateChips() {
+  const el = document.getElementById("qf-multi-date-chips");
+  if (!el) return;
+  el.innerHTML = multiDates
+    .map(
+      (d) => `
+    <span class="date-chip">
+      ${formatDate(d)}
+      <button type="button" onclick="removeMultiDate('${d}')" title="Remove"><i class="ph-bold ph-x"></i></button>
+    </span>`,
+    )
+    .join("");
+}
+
+function getRangeDates(start, end) {
+  const dates = [];
+  let cur = new Date(start + "T00:00:00");
+  const last = new Date(end + "T00:00:00");
+  while (cur <= last) {
+    dates.push(cur.toISOString().split("T")[0]);
+    cur.setDate(cur.getDate() + 1);
+  }
+  return dates;
 }
 
 function updateRoleSelect() {
@@ -978,40 +1302,64 @@ function togglePomoDropdown() {
   dropdown?.classList.toggle("open");
 }
 
-function cancelQuick() {
-  document.getElementById("quick-form").classList.add("hidden");
-  /** @type {HTMLInputElement} */ (
-    document.getElementById("quick-input")
-  ).value = "";
-  quickTitle = "";
-}
-
 function saveQuickTask() {
+  const title = document.getElementById("quick-input").value.trim();
+  if (!title) { alert("Please enter a task title."); return; }
+  quickTitle = title;
   const role = document.getElementById("qf-role").value;
   const priority = document.getElementById("qf-priority").value;
   const status = document.getElementById("qf-status").value;
-  const due = /** @type {HTMLInputElement} */ (
-    document.getElementById("qf-due")
-  ).value;
-  const recurring = /** @type {HTMLInputElement} */ (
-    document.getElementById("qf-recurring")
-  ).checked;
-  tasks.unshift({
-    id: nextId++,
-    title: quickTitle,
-    role,
-    status,
-    priority,
-    due,
-    done: false,
-    recurring,
-    notify: false,
-    notifyInterval: 60,
+  const recurring = document.getElementById("qf-recurring").checked;
+
+  if (dateMode === "range") {
+    if (!rangeStart || !rangeEnd) {
+      alert("Please select a start and end date.");
+      return;
+    }
+    tasks.unshift({
+      id: nextId++, title: quickTitle, role, status, priority,
+      due: rangeStart, dueEnd: rangeEnd,
+      done: false, recurring, notify: false, notifyInterval: 60,
+    });
+    saveData();
+    render();
+    closeAddTaskModal();
+    return;
+  }
+
+  let dueDates = dateMode === "single"
+    ? [document.getElementById("qf-due").value]
+    : [...multiDates];
+
+  if (!dueDates.length || dueDates.some((d) => !d)) {
+    alert("Please select at least one valid date.");
+    return;
+  }
+
+  dueDates.forEach((due) => {
+    tasks.unshift({
+      id: nextId++, title: quickTitle, role, status, priority, due,
+      done: false, recurring, notify: false, notifyInterval: 60,
+    });
   });
+
   saveData();
   render();
-  cancelQuick();
+  closeAddTaskModal();
 }
+
+document.addEventListener("DOMContentLoaded", () => {
+  const startEl = document.getElementById("qf-range-start");
+  const endEl = document.getElementById("qf-range-end");
+  const countEl = document.getElementById("qf-range-count");
+  function updateRangeCount() {
+    if (!startEl.value || !endEl.value || !countEl) { if (countEl) countEl.textContent = ""; return; }
+    const days = getRangeDates(startEl.value, endEl.value).length;
+    countEl.textContent = days > 0 ? `${days} task${days > 1 ? "s" : ""} will be created` : "";
+  }
+  startEl?.addEventListener("change", updateRangeCount);
+  endEl?.addEventListener("change", updateRangeCount);
+});
 
 function setDateFilter(tab, filter) {
   dateFilters[tab] = filter;
@@ -1691,6 +2039,13 @@ function renderRoleTabs() {
       const key = role.toLowerCase().replace(/\s+/g, "_");
       return `
       <div id="tab-${key}" class="tab-content hidden fade-in">
+        <div class="flex gap-2 mb-3 flex-wrap items-center">
+          <div class="kanban-search-wrap">
+            <i class="ph-bold ph-magnifying-glass"></i>
+            <input type="text" id="search-${key}" placeholder="Search tasks..."
+              oninput="setKanbanSearch('${key}', this.value)" class="kanban-search-input" />
+          </div>
+        </div>
         <div class="flex gap-2 mb-4 flex-wrap items-center">
           <button class="date-filter-badge active" onclick="setDateFilter('${key}','all')"   data-filter="all">All</button>
           <button class="date-filter-badge"        onclick="setDateFilter('${key}','today')" data-filter="today">Today</button>
@@ -1708,6 +2063,14 @@ function renderRoleTabs() {
               <i class="ph-bold ph-arrow-down"></i>
             </button>
           </div>
+        </div>
+        <div class="flex items-center gap-3 mb-3">
+          <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.8rem;color:#C08090;cursor:pointer;">
+            <input type="checkbox" id="select-all-kanban-${key}" onchange="toggleSelectAll('kanban-${key}', this.checked)" />
+            Select all
+          </label>
+          <button onclick="bulkMarkDone('kanban-${key}')" class="text-xs px-3 py-1 rounded-lg bg-lavender-200 text-lavender-700 hover:bg-lavender-300">Mark done</button>
+          <button onclick="bulkDelete('kanban-${key}')" class="text-xs px-3 py-1 rounded-lg bg-red-100 text-red-500 hover:bg-red-200">Delete</button>
         </div>
         <div id="kanban-${key}" class="kanban-board"></div>
       </div>`;
@@ -1840,7 +2203,7 @@ function getPriorityEventClass(priority) {
 function getCalendarEvents() {
   const events = [];
 
-  tasks
+tasks
     .filter(
       (t) =>
         t.due &&
@@ -1848,18 +2211,36 @@ function getCalendarEvents() {
     )
     .forEach((t) => {
       const roleOrder = roles.indexOf(t.role);
+      // Ranged task → single spanning event
+      if (t.dueEnd) {
+        events.push({
+          id: `task-${t.id}`,
+          title: t.title,
+          start: t.due,
+          end: offsetFromDate(t.dueEnd, 1),
+          order: roleOrder === -1 ? 999 : roleOrder,
+          extendedProps: {
+            taskId: t.id, role: t.role, priority: t.priority,
+            status: t.status, done: t.done,
+            eventBg: getRoleColor(t.role).eventBg,
+            eventBorder: getRoleColor(t.role).eventBorder,
+            eventText: getRoleColor(t.role).text,
+          },
+          classNames: [getPriorityEventClass(t.priority)],
+          display: "block",
+        });
+        return; // skip the normal single-day / recurring logic below
+      }
+
       const baseEvent = {
         id: `task-${t.id}`,
         title: t.title,
-        start: t.due,
-        end: t.due,
         order: roleOrder === -1 ? 999 : roleOrder,
         extendedProps: {
           taskId: t.id,
           role: t.role,
           priority: t.priority,
           status: t.status,
-          done: t.done,
           eventBg: getRoleColor(t.role).eventBg,
           eventBorder: getRoleColor(t.role).eventBorder,
           eventText: getRoleColor(t.role).text,
@@ -1867,21 +2248,27 @@ function getCalendarEvents() {
         classNames: [getPriorityEventClass(t.priority)],
         display: "block",
       };
-      events.push(baseEvent);
 
-      // For recurring tasks, also show them on the next 30 days
-      if (t.recurring) {
-        for (let d = 1; d <= 30; d++) {
-          const futureDate = offsetDate(d);
-          if (futureDate === t.due) continue; // skip if same as original due date
-          events.push({
-            ...baseEvent,
-            id: `task-${t.id}-r${d}`,
-            start: futureDate,
-            end: futureDate,
-            extendedProps: { ...baseEvent.extendedProps, done: false }, // future = always not done
-          });
-        }
+      if (!t.recurring) {
+        events.push({ ...baseEvent, start: t.due, end: t.due, extendedProps: { ...baseEvent.extendedProps, done: t.done } });
+        return;
+      }
+
+      // Recurring: always show today (d=0) through +30 days
+      const earliestShow = t.due < todayISO() ? todayISO() : t.due;
+      for (let d = 0; d <= 30; d++) {
+        const occurDate = offsetDate(d);
+        if (occurDate < earliestShow) continue;
+        events.push({
+          ...baseEvent,
+          id: `task-${t.id}-r${d}`,
+          start: occurDate,
+          end: occurDate,
+          extendedProps: {
+            ...baseEvent.extendedProps,
+            done: occurDate === todayISO() ? t.done : false,
+          },
+        });
       }
     });
 
@@ -1907,12 +2294,15 @@ function initCalendar() {
     events: getCalendarEvents(),
     eventDrop: function (info) {
       const task = tasks.find((t) => t.id === info.event.extendedProps.taskId);
-      if (!task) {
-        info.revert();
-        return;
+      if (!task) { info.revert(); return; }
+
+      const deltaDays = info.delta.days; // exact day shift FullCalendar calculated
+
+      task.due = offsetFromDate(task.due, deltaDays);
+      if (task.dueEnd) {
+        task.dueEnd = offsetFromDate(task.dueEnd, deltaDays);
       }
-      const d = info.event.start;
-      task.due = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
       saveData();
       if (activeTab === "overview") {
         renderMetrics();
@@ -1985,18 +2375,24 @@ function showTaskDetail(task) {
   if (!modal) return;
   window.currentModalTask = task;
   isEditingTaskTitle = false;
+
   document.getElementById("modal-task-title").classList.remove("hidden");
   document.getElementById("modal-task-title-input").classList.add("hidden");
   document.getElementById("modal-edit-buttons").classList.add("hidden");
   setText("modal-task-title", task.title);
+
   const sEl = document.getElementById("modal-status-pill");
   const pEl = document.getElementById("modal-priority-pill");
   const rEl = document.getElementById("modal-role-pill");
   const dEl = document.getElementById("modal-due-date");
+
   if (sEl) sEl.innerHTML = statusPill(task.status);
   if (pEl) pEl.innerHTML = priPill(task.priority);
   if (rEl) rEl.innerHTML = rolePill(task.role);
-  if (dEl) dEl.textContent = task.due ? formatDate(task.due) : "No due date";
+  if (dEl) dEl.textContent = task.dueEnd
+    ? `${formatDate(task.due)} → ${formatDate(task.dueEnd)}`
+    : (task.due ? formatDate(task.due) : "No due date");
+
   // Notification section
   const notifEl = document.getElementById("modal-notify-section");
   if (notifEl) {
@@ -2019,8 +2415,10 @@ function showTaskDetail(task) {
           </div>` : ''}
       </div>`;
   }
+
   const undoBtn = document.getElementById("modal-undo-btn");
   const doneBtn = document.getElementById("modal-done-btn");
+
   if (task.done) {
     if (undoBtn) undoBtn.classList.remove("hidden");
     if (doneBtn) doneBtn.classList.add("hidden");
@@ -2028,6 +2426,7 @@ function showTaskDetail(task) {
     if (undoBtn) undoBtn.classList.add("hidden");
     if (doneBtn) doneBtn.classList.remove("hidden");
   }
+
   modal.classList.add("active");
 }
 
@@ -2383,6 +2782,7 @@ function setTaskNotifyInterval(id, minutes) {
   }
 
   if (isLocal) {
+    isGuestMode = true;
     console.log("🌙 Dev mode — skipping auth");
     // Mock a fake user
     currentUser = {
